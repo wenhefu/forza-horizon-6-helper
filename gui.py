@@ -3,15 +3,18 @@ import os
 import queue
 import threading
 import tkinter as tk
-from tkinter import ttk, scrolledtext
+from tkinter import ttk, scrolledtext, messagebox
 
 from app_logging import LOG_PATH, log_startup_diagnostics, setup_logging
+from buy_car_runner import BuyCarRunner
 import config
 import focus
 from gamepad import Gamepad
 from hotkeys import GlobalHotkey
 from runner import Runner
 from sequences import farm_sequence
+from single_instance import SingleInstance
+from smart_runner import SmartRunner
 
 
 class App:
@@ -31,6 +34,8 @@ class App:
         self.pad_lock = threading.Lock()
 
         self.runner = Runner(on_log=self._log, logger=self.logger, pad_provider=self.get_gamepad)
+        self.smart_runner = SmartRunner(on_log=self._log, logger=self.logger, pad_provider=self.get_gamepad)
+        self.buy_car_runner = BuyCarRunner(on_log=self._log, logger=self.logger, pad_provider=self.get_gamepad)
         self.keeper = None
         self.hotkey = GlobalHotkey(on_press=self._enqueue_toggle, on_log=self._log)
 
@@ -42,7 +47,7 @@ class App:
         self.no_activate_var = tk.BooleanVar(value=True)
         self.require_foreground_var = tk.BooleanVar(value=True)
         self.resume_var = tk.BooleanVar(value=False)
-        self.mode_var = tk.StringVar(value="foreground")
+        self.mode_var = tk.StringVar(value="skill_points")
         self.hint_var = tk.StringVar()
 
         frm = ttk.Frame(root, padding=12)
@@ -50,17 +55,23 @@ class App:
 
         mode_box = ttk.LabelFrame(frm, text="运行模式", padding=6)
         mode_box.grid(row=0, column=0, columnspan=2, sticky="we", pady=(0, 6))
-        ttk.Radiobutton(mode_box, text="模式一：前台挂机（推荐，稳）",
-                        variable=self.mode_var, value="foreground",
+        ttk.Radiobutton(mode_box, text="模式一：刷技能点（EventLab）",
+                        variable=self.mode_var, value="skill_points",
                         command=self.apply_mode).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(mode_box, text="模式二：后台尝试（实验，不保证）",
-                        variable=self.mode_var, value="background",
+        ttk.Radiobutton(mode_box, text="模式二：买车加点（先买22B）",
+                        variable=self.mode_var, value="buy_car",
                         command=self.apply_mode).grid(row=1, column=0, sticky="w")
+        ttk.Radiobutton(mode_box, text="模式三：前台计时（兜底）",
+                        variable=self.mode_var, value="foreground",
+                        command=self.apply_mode).grid(row=2, column=0, sticky="w")
+        ttk.Radiobutton(mode_box, text="模式四：后台尝试（实验，不保证）",
+                        variable=self.mode_var, value="background",
+                        command=self.apply_mode).grid(row=3, column=0, sticky="w")
 
         fields = [
             ("启动倒计时（秒）", self.startup_var),
             ("每圈前进时间（秒）", self.drive_var),
-            ("总运行时间（分钟，0=一直跑）", self.total_var),
+            ("总运行时间（分钟，0=一直跑，刷技能点默认0）", self.total_var),
         ]
         r = 1
         for label, var in fields:
@@ -79,6 +90,8 @@ class App:
         self.log_btn.grid(row=0, column=2, padx=4)
         self.focus_btn = ttk.Button(btns, text="切回游戏", command=self.activate_game)
         self.focus_btn.grid(row=0, column=3, padx=4)
+        self.detect_btn = ttk.Button(btns, text="识别一次", command=self.detect_once)
+        self.detect_btn.grid(row=1, column=2, padx=4, pady=(6, 0))
         self.confirm_btn = ttk.Button(btns, text="按A确认", command=lambda: self.tap_button("a"))
         self.confirm_btn.grid(row=1, column=0, padx=4, pady=(6, 0))
         self.back_btn = ttk.Button(btns, text="按B返回", command=lambda: self.tap_button("b"))
@@ -185,10 +198,13 @@ class App:
                 self._append(self.log_q.get_nowait())
         except queue.Empty:
             pass
-        running = self.runner.is_running()
+        running = self.is_running()
         self.start_btn.config(state="disabled" if running else "normal")
         self.stop_btn.config(state="normal" if running else "disabled")
         self.root.after(100, self._tick)
+
+    def is_running(self):
+        return self.runner.is_running() or self.smart_runner.is_running() or self.buy_car_runner.is_running()
 
     def _num(self, var, default):
         try:
@@ -204,6 +220,11 @@ class App:
         drive = self._num(self.drive_var, config.DRIVE_SECONDS)
         minutes = self._num(self.total_var, config.TOTAL_MINUTES)
         total = None if minutes <= 0 else minutes * 60
+        if self.mode_var.get() in ("smart", "skill_points"):
+            if total is None:
+                self._log("刷技能点模式：总运行时间为 0，会一直跑到你手动停止。")
+            else:
+                self._log(f"刷技能点模式：总运行时间为 {minutes:.1f} 分钟，到点会自动停止并回正手柄。")
         self.logger.info(
             "Start requested source=%s startup=%.2f drive=%.2f minutes=%.2f keep_active=%s auto_focus=%s require_foreground=%s resume=%s no_activate=%s",
             source,
@@ -221,6 +242,22 @@ class App:
         if self.keep_var.get():
             self.keeper = focus.KeepActive(title_substr=config.GAME_TITLE, on_log=self._log)
             self.keeper.start()
+        if self.mode_var.get() in ("smart", "skill_points"):
+            self.smart_runner.start(
+                startup_delay=startup,
+                total_seconds=total,
+                auto_focus=self.auto_focus_var.get(),
+                require_foreground=self.require_foreground_var.get(),
+            )
+            return
+        if self.mode_var.get() == "buy_car":
+            self.buy_car_runner.start(
+                startup_delay=startup,
+                total_seconds=total,
+                auto_focus=self.auto_focus_var.get(),
+                require_foreground=self.require_foreground_var.get(),
+            )
+            return
         self.runner.start(farm_sequence(drive_seconds=drive),
                           startup_delay=startup,
                           total_seconds=total,
@@ -233,12 +270,14 @@ class App:
     def on_stop(self, source="button"):
         self.logger.info("Stop requested source=%s", source)
         self.runner.stop()
+        self.smart_runner.stop()
+        self.buy_car_runner.stop()
         if self.keeper:
             self.keeper.stop()
             self.keeper = None
 
     def toggle_run(self, source="hotkey"):
-        if self.runner.is_running():
+        if self.is_running():
             self.on_stop(source=source)
         else:
             self.start_run(source=source)
@@ -263,7 +302,27 @@ class App:
         pass
 
     def apply_mode(self):
-        if self.mode_var.get() == "background":
+        if self.mode_var.get() in ("smart", "skill_points"):
+            self.no_activate_var.set(True)
+            self.auto_focus_var.set(True)
+            self.require_foreground_var.set(True)
+            self.keep_var.set(False)
+            self.resume_var.set(False)
+            if self.total_var.get().strip() == "10.0":
+                self.total_var.set("0.0")
+            self.hint_var.set("刷技能点：EventLab 智能识别，不盲计时。图1先校准到开始赛事再按A，图2保持油门，"
+                              "图3按X，图4按A；总运行时间默认0=一直跑；暂停菜单按B返回，截图只在内存中处理。")
+            self._log("已切到【刷技能点】模式。")
+        elif self.mode_var.get() == "buy_car":
+            self.no_activate_var.set(True)
+            self.auto_focus_var.set(True)
+            self.require_foreground_var.set(True)
+            self.keep_var.set(False)
+            self.resume_var.set(False)
+            self.hint_var.set("买车加点：第一段先购买默认斯巴鲁 22B。会按 Menu 打开暂停菜单，"
+                              "进入车展购买 22B，买车辆熟练度抽奖精灵后回车展循环；截图只在内存中处理。")
+            self._log("已切到【买车加点】模式（买 22B + 熟练度抽奖精灵循环）。")
+        elif self.mode_var.get() == "background":
             self.no_activate_var.set(True)
             self.auto_focus_var.set(False)
             self.require_foreground_var.set(False)
@@ -280,6 +339,25 @@ class App:
                               "失焦会自动暂停计时并尝试切回。")
             self._log("已切到【前台挂机】模式（推荐，稳）。")
         self.apply_game_mode()
+
+    def detect_once(self):
+        if self.auto_focus_var.get():
+            self.activate_game()
+        try:
+            if self.mode_var.get() == "buy_car":
+                detection = self.buy_car_runner.detect_once()
+            else:
+                detection = self.smart_runner.detect_once()
+        except Exception as exc:
+            self.logger.exception("Manual detection failed")
+            self._log(f"识别失败：{exc}")
+            return
+        scores = ", ".join(f"{k}={v:.3f}" for k, v in detection.scores.items())
+        self._log(f"识别一次：{detection.state} conf={detection.confidence:.2f}；{scores}")
+        if getattr(detection, "ocr_text", ""):
+            self._log(f"OCR：{detection.ocr_text[:180]}")
+        self.logger.info("Manual detection state=%s confidence=%.3f scores=%s",
+                         detection.state, detection.confidence, scores)
 
     def apply_game_mode(self):
         try:
@@ -311,6 +389,8 @@ class App:
         self.logger.info("Window closing")
         self.hotkey.stop()
         self.runner.stop()
+        self.smart_runner.stop()
+        self.buy_car_runner.stop()
         if self.pad:
             self.pad.neutral()
         if self.keeper:
@@ -319,7 +399,15 @@ class App:
 
 
 def main():
+    instance = SingleInstance()
+    if not instance.acquired:
+        root = tk.Tk()
+        root.withdraw()
+        messagebox.showwarning("地平线6 刷分助手", "助手已经在运行。请先关闭旧窗口，避免创建多个虚拟手柄。")
+        root.destroy()
+        return
     root = tk.Tk()
+    root._single_instance = instance
     App(root)
     root.mainloop()
 

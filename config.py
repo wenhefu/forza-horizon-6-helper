@@ -3,7 +3,24 @@
 STARTUP_DELAY = 5.0     # seconds to wait before driving (time to switch into Forza)
 DRIVE_SECONDS = 180.0   # seconds to hold throttle per lap. SET THIS to your route's
                         # real length (a 44s test diverged from a ~3 min actual run).
-TOTAL_MINUTES = 10.0    # total run time; 0 = run until you press Stop
+TOTAL_MINUTES = 0.0     # total run time; 0 = run until you press Stop
+
+# Smart screenshot recognition. Captures are in memory only and are not saved.
+SMART_MENU_POLL_SECONDS = 0.75
+SMART_RACE_EARLY_SECONDS = 10.0
+SMART_RACE_EARLY_POLL_SECONDS = 2.0
+SMART_RACE_POLL_SECONDS = 5.0
+SMART_UNKNOWN_POLL_SECONDS = 1.0
+SMART_DISCONNECT_RETRY_SECONDS = 2.0
+SMART_DISCONNECT_MAX_RETRIES = 8
+
+# Buy-car flow. Captures are in memory only and are not saved.
+BUY_POLL_SECONDS = 0.75
+BUY_ACTION_DELAY_SECONDS = 0.75
+BUY_OCR_ENABLED = True
+BUY_OCR_MIN_INTERVAL_SECONDS = 1.5
+BUY_OCR_MIN_CONFIDENCE = 0.45
+BUY_OCR_LOG_ITEMS = True
 
 # Restart-sequence timing (rarely needs changing):
 MENU_DELAY = 0.6        # pause between menu button presses
