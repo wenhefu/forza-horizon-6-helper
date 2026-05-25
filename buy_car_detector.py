@@ -253,6 +253,59 @@ class BuyCarScreenDetector:
                 return 0, best_score
             return best_col, best_score
 
+        def item_box(item, default_w=0.06, default_h=0.030):
+            x = item_x(item)
+            y = item_y(item)
+            x1 = float(getattr(item, "nx1", 0.0) or 0.0)
+            y1 = float(getattr(item, "ny1", 0.0) or 0.0)
+            x2 = float(getattr(item, "nx2", 0.0) or 0.0)
+            y2 = float(getattr(item, "ny2", 0.0) or 0.0)
+            if x2 > x1 and y2 > y1:
+                return x1, y1, x2, y2
+            return x - default_w / 2, y - default_h / 2, x + default_w / 2, y + default_h / 2
+
+        def active_eventlab_tab():
+            if frame is None:
+                return 0, 0.0
+            tab_defs = [
+                (1, ["精选"]),
+                (2, ["热门"]),
+                (3, ["本月最佳"]),
+                (4, ["最新最热"]),
+                (5, ["全新"]),
+                (6, ["最爱的创作者", "创作者"]),
+                (7, ["我的收藏"]),
+                (8, ["我的历史记录", "历史记录"]),
+            ]
+            best_code = 0
+            best_dark = 0.0
+            for item in ocr_items:
+                if not (0.145 <= item_y(item) <= 0.190):
+                    continue
+                text = self._normalize_text(item.text)
+                code = 0
+                for candidate_code, keywords in tab_defs:
+                    if has(text, keywords):
+                        code = candidate_code
+                        break
+                if not code:
+                    continue
+                x1, y1, x2, y2 = item_box(item)
+                region = (
+                    max(0.0, x1 - 0.012),
+                    max(0.0, y1 - 0.010),
+                    min(1.0, x2 + 0.012),
+                    min(1.0, y2 + 0.035),
+                )
+                tab_dark = dark_ratio(region)
+                scores[f"eventlab_tab_{code}_dark"] = tab_dark
+                if tab_dark > best_dark:
+                    best_code = code
+                    best_dark = tab_dark
+            if best_dark < 0.18:
+                return 0, best_dark
+            return best_code, best_dark
+
         autoshow_brand_keywords = [
             "ABARTH",
             "ALUMICRAFT",
@@ -381,27 +434,46 @@ class BuyCarScreenDetector:
         scores["ocr_subaru_22b_selected_seen"] = 1.0 if (
             subaru_22b_target_col and selected_target_lime >= 0.025
         ) else 0.0
-        eventlab_my_cars_seen = (
-            has(main_text, ["我的车辆"])
-            and has(mid_text, ["当前车辆", "购买车辆", "筛选", "前往制造商"])
-            and not has(main_text, ["购买与出售"])
+        # The page title "我的车辆" sits at y~=0.11 in the user's window, just above
+        # main_text's 0.14 threshold, so check the whole frame. Before filtering,
+        # the tab strip may contain "当前车辆/购买车辆"; after filtering to favorites,
+        # it becomes dynamic brand tabs, so the bottom hint bar is the steadier
+        # anchor. 升级与调校 only appears on the pause-menu vehicle sub-page;
+        # 购买与出售 only appears on the pause-menu cars tab.
+        eventlab_my_cars_title_seen = has(all_text, ["我的车辆"])
+        eventlab_my_cars_tab_seen = has(upper_text, ["购买车辆", "当前车辆"])
+        eventlab_my_cars_hint_seen = has(bottom_text, ["筛选"]) and has(
+            bottom_text,
+            ["前往制造商", "排序", "切换详情", "切换数据"],
         )
+        eventlab_not_pause_menu = not has(all_text, ["升级与调校", "购买与出售"])
+        eventlab_card_title_y_min = 0.205
+        eventlab_card_title_y_max = 0.370
         eventlab_car_items = [
             item
             for item in ocr_items
-            if 0.22 <= item_y(item) <= 0.36
+            if eventlab_card_title_y_min <= item_y(item) <= eventlab_card_title_y_max
             and 0.18 <= item_x(item) <= 0.96
             and not has(
                 self._normalize_text(item.text),
                 ["我的车辆", "购买车辆", "当前车辆", "前往制造商", "筛选", "LB", "RB", "SUBARU"],
             )
         ]
+        eventlab_my_cars_card_seen = bool(eventlab_car_items) and has(
+            mid_text,
+            ["传奇", "普通", "稀有", "史诗", "速度", "操控", "加速", "起跑", "刹车", "越野"],
+        )
+        eventlab_my_cars_seen = (
+            eventlab_my_cars_title_seen
+            and eventlab_not_pause_menu
+            and (eventlab_my_cars_tab_seen or eventlab_my_cars_hint_seen or eventlab_my_cars_card_seen)
+        )
         eventlab_col_step = median_step([item_x(item) for item in eventlab_car_items], 0.17)
         eventlab_cols = cluster_centers([item_x(item) for item in eventlab_car_items], eventlab_col_step * 0.35)
         eventlab_22b_target_text_seen = any(
             (
                 0.18 <= item_x(item) <= 0.96
-                and 0.22 <= item_y(item) <= 0.36
+                and eventlab_card_title_y_min <= item_y(item) <= eventlab_card_title_y_max
                 and has(self._normalize_text(item.text), ["22B", "2B-STI", "2B-ST1", "IMPREZA22", "MPREZA22"])
                 and has(self._normalize_text(item.text), ["IMPREZA", "MPREZA", "STI", "ST1"])
             )
@@ -411,7 +483,7 @@ class BuyCarScreenDetector:
         for item in ocr_items:
             text = self._normalize_text(item.text)
             if not (
-                0.22 <= item_y(item) <= 0.36
+                eventlab_card_title_y_min <= item_y(item) <= eventlab_card_title_y_max
                 and 0.18 <= item_x(item) <= 0.96
                 and has(text, ["22B", "2B-STI", "2B-ST1", "IMPREZA22", "MPREZA22"])
                 and has(text, ["IMPREZA", "MPREZA", "STI", "ST1"])
@@ -427,6 +499,9 @@ class BuyCarScreenDetector:
             else 0.0
         )
         scores["ocr_eventlab_my_cars_seen"] = 1.0 if eventlab_my_cars_seen else 0.0
+        scores["ocr_eventlab_my_cars_tab_seen"] = 1.0 if eventlab_my_cars_tab_seen else 0.0
+        scores["ocr_eventlab_my_cars_hint_seen"] = 1.0 if eventlab_my_cars_hint_seen else 0.0
+        scores["ocr_eventlab_my_cars_card_seen"] = 1.0 if eventlab_my_cars_card_seen else 0.0
         scores["ocr_eventlab_22b_target_text_seen"] = 1.0 if eventlab_22b_target_text_seen else 0.0
         scores["ocr_eventlab_22b_target_col"] = float(eventlab_22b_target_col)
         scores["ocr_eventlab_selected_col"] = float(eventlab_selected_col)
@@ -441,6 +516,9 @@ class BuyCarScreenDetector:
         scores["ocr_eventlab_filter_favorite_checked"] = (
             1.0 if scores["filter_favorite_check_center_white"] >= 0.10 else 0.0
         )
+        eventlab_active_tab, eventlab_active_tab_dark = active_eventlab_tab()
+        scores["ocr_eventlab_active_tab"] = float(eventlab_active_tab)
+        scores["eventlab_active_tab_dark"] = eventlab_active_tab_dark
         scores["ocr_vehicle_upgrade_seen"] = 1.0 if has(mid_text, ["升级与调校"]) else 0.0
         scores["ocr_upgrade_mastery_seen"] = 1.0 if has(mid_text, ["车辆熟练度"]) else 0.0
         pause_cars_tile_seen = pause_purchase_seen or has(mid_text, ["更换车辆", "购买新车", "二手车"])
@@ -462,10 +540,39 @@ class BuyCarScreenDetector:
         if has(main_text, ["筛选"]) and has(mid_text, ["收藏", "性能等级", "车辆类型"]):
             return updated(STATE_EVENTLAB_FILTER, 0.96)
 
-        if has(main_text, ["赛事"]) and has(mid_text, ["我的收藏", "最爱的创作者", "我的历史记录"]):
-            return updated(STATE_EVENTLAB_FAVORITES, 0.92)
+        # Bottom hint bar uniquely identifies the active EventLab tab:
+        # - "移除最爱" only appears on the 我的收藏 tab (remove-favorite action).
+        # - "最爱的赛事" only appears on event tabs like 精选/热门/最新最热 (add-to-favorite action).
+        # Relying on the hint bar avoids the false positive where adjacent tab text
+        # (e.g. 我的收藏 visible while 最爱的创作者 is actually selected) triggers
+        # FAVORITES too early.
+        if has(main_text, ["赛事"]) and eventlab_active_tab == 7:
+            return updated(STATE_EVENTLAB_FAVORITES, 0.94)
 
-        if has(main_text, ["搜寻"]) and has(main_text, ["关键词", "创建者", "共享代码", "输入文本"]):
+        if has(main_text, ["赛事"]) and eventlab_active_tab:
+            return updated(STATE_EVENTLAB_EVENTS, 0.92)
+
+        if has(all_text, ["移除最爱"]) and has(main_text, ["赛事"]):
+            return updated(STATE_EVENTLAB_FAVORITES, 0.95)
+
+        if (
+            has(all_text, ["最爱的赛事"])
+            and has(main_text, ["赛事"])
+            and not has(mid_text, ["我的收藏"])
+        ):
+            return updated(STATE_EVENTLAB_EVENTS, 0.93)
+
+        # Fallback for FAVORITES when the hint bar is missed: require ALL three
+        # favorite-row tab labels in mid_text so we are reasonably centered on
+        # 我的收藏 (both neighbors visible), not lingering on 最爱的创作者.
+        if has(main_text, ["赛事"]) and has(all_text, ["移除最爱"]) and has(mid_text, ["我的收藏"]):
+            return updated(STATE_EVENTLAB_FAVORITES, 0.88)
+
+        # SEARCH dialog: actual popup has 搜寻 + (关键词/共享代码/输入文本) in the
+        # middle of the screen. The events page bottom hint bar also contains
+        # 搜寻 and 创建者信息, so we anchor on mid_text to skip the toolbar and
+        # drop the over-broad "创建者" keyword.
+        if has(mid_text, ["搜寻"]) and has(mid_text, ["关键词", "共享代码", "输入文本"]):
             return updated(STATE_SEARCH_DIALOG, 0.94)
 
         if (
@@ -496,8 +603,9 @@ class BuyCarScreenDetector:
             return updated(STATE_EVENTLAB_MENU, 0.92)
 
         if has(main_text, ["赛事"]) and has(mid_text, ["精选", "热门", "本月最佳", "最新最热"]):
-            if has(mid_text, ["我的收藏", "收藏"]):
-                return updated(STATE_EVENTLAB_FAVORITES, 0.92)
+            # Hint bar above is the authoritative FAVORITES signal; here we treat
+            # any 精选/热门/本月最佳/最新最热 tab strip as an events page so the
+            # combo navigator keeps pressing RB until it reaches 我的收藏.
             return updated(STATE_EVENTLAB_EVENTS, 0.90)
 
         if has(mid_text, ["收集簿", "世界地图", "下一站", "欢迎来到", "FESTIVALPLAYLIST"]):

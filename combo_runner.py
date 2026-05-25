@@ -121,57 +121,69 @@ class ComboRunner:
             return
 
         started = time.monotonic()
+        cycle = 0
         try:
             if startup_delay > 0:
-                self.on_log(f"{startup_delay:.0f} 秒后开始组合模式：先买车加点，点数不足后去 EventLab 刷分。")
+                self.on_log(
+                    f"{startup_delay:.0f} 秒后开始组合模式：买车加点点完→EventLab 刷分→回到自由漫游→再去买车，循环往复。"
+                )
                 if not self._sleep(startup_delay):
                     return
 
-            remaining = self._remaining(started, total_seconds)
-            if remaining is not None and remaining <= 0:
-                self.on_log("组合模式：总运行时间已到，未启动买车阶段。")
-                return
+            while not self._stop.is_set():
+                cycle += 1
+                remaining = self._remaining(started, total_seconds)
+                if remaining is not None and remaining <= 0:
+                    self.on_log("组合模式：总运行时间已到，停止循环。")
+                    return
 
-            self.on_log("组合模式：买车加点阶段开始，直到检测到技术点数不足。")
-            self.buy_runner.start(
-                startup_delay=0.0,
-                total_seconds=remaining,
-                auto_focus=auto_focus,
-                require_foreground=require_foreground,
-            )
-            while self.buy_runner.is_running() and not self._stop.is_set():
-                if not self._sleep(0.25):
-                    break
+                eventlab_ready = self._try_resume_eventlab_prestart(
+                    pad,
+                    auto_focus,
+                    require_foreground,
+                )
+                if not eventlab_ready:
+                    self.on_log(f"组合模式：第 {cycle} 轮买车加点阶段开始，直到检测到技术点数不足。")
+                    if not self._run_buy_phase(remaining, auto_focus, require_foreground):
+                        return  # stop reason wasn't points_exhausted, or user stopped
 
-            if self._stop.is_set():
-                return
-            if self.buy_runner.stop_reason != "points_exhausted":
-                self.on_log("组合模式：买车阶段停止原因不是点数不足，先不继续切 EventLab。")
-                return
+                    remaining = self._remaining(started, total_seconds)
+                    if remaining is not None and remaining <= 0:
+                        self.on_log("组合模式：买车阶段完成时总时间已到，不再进入 EventLab。")
+                        return
 
-            self.on_log("组合模式：确认是技术点数不足，开始退回自由漫游并打开 EventLab。")
-            if not self._navigate_to_eventlab_prestart(pad, auto_focus, require_foreground):
-                self.on_log("组合模式：没有稳定进入 EventLab 开始赛事菜单，已停止，避免乱按。")
-                return
+                    if not self._navigate_to_eventlab_prestart(pad, auto_focus, require_foreground):
+                        self.on_log("组合模式：没有稳定进入 EventLab 开始赛事菜单，已停止，避免乱按。")
+                        return
+                else:
+                    self.on_log("组合模式：已从当前 EventLab 页面续接到开始赛事菜单。")
 
-            remaining = self._remaining(started, total_seconds)
-            if remaining is not None and remaining <= 0:
-                self.on_log("组合模式：总运行时间已到，已进入 EventLab 但不再启动刷分。")
-                return
+                remaining = self._remaining(started, total_seconds)
+                if remaining is not None and remaining <= 0:
+                    self.on_log("组合模式：进入 EventLab 时总时间已到，不再启动刷分。")
+                    return
 
-            farm_seconds = float(getattr(config, "COMBO_EVENTLAB_FARM_SECONDS", 2 * 60 * 60))
-            if remaining is not None:
-                farm_seconds = min(farm_seconds, remaining)
-            self.on_log(f"组合模式：已到 EventLab 开始赛事菜单，交给刷技能点模式继续跑 {farm_seconds / 60:.0f} 分钟。")
-            self.smart_runner.start(
-                startup_delay=0.0,
-                total_seconds=farm_seconds,
-                auto_focus=auto_focus,
-                require_foreground=require_foreground,
-            )
-            while self.smart_runner.is_running() and not self._stop.is_set():
-                if not self._sleep(0.25):
-                    break
+                farm_seconds = float(getattr(config, "COMBO_EVENTLAB_FARM_SECONDS", 90 * 60))
+                if remaining is not None:
+                    farm_seconds = min(farm_seconds, remaining)
+                if not self._run_farm_phase(farm_seconds, auto_focus, require_foreground):
+                    return  # user stopped during farming
+
+                if self._stop.is_set():
+                    return
+
+                remaining = self._remaining(started, total_seconds)
+                if remaining is not None and remaining <= 0:
+                    self.on_log("组合模式：刷分阶段结束时总时间已到，不再回到买车阶段。")
+                    return
+
+                # EventLab leg done. Get back to the pause menu so the next
+                # iteration of the buy phase can pick up cleanly.
+                if not self._exit_eventlab_to_pause_menu(pad, auto_focus, require_foreground):
+                    self.on_log("组合模式：没办法稳定回到暂停菜单，已停止，下一轮买车不启动。")
+                    return
+
+                self.on_log(f"组合模式：第 {cycle} 轮完成，准备进入第 {cycle + 1} 轮买车加点。")
         except Exception as exc:
             self.logger.exception("ComboRunner crashed")
             self.on_log(f"组合模式运行时出错：{exc}")
@@ -181,6 +193,116 @@ class ComboRunner:
                 self.smart_runner.stop()
             pad.neutral()
             self.on_log("组合模式已停止，手柄保持连接并已回正。")
+
+    def _run_buy_phase(self, remaining, auto_focus, require_foreground):
+        self.buy_runner.start(
+            startup_delay=0.0,
+            total_seconds=remaining,
+            auto_focus=auto_focus,
+            require_foreground=require_foreground,
+        )
+        while self.buy_runner.is_running() and not self._stop.is_set():
+            if not self._sleep(0.25):
+                break
+        if self._stop.is_set():
+            return False
+        if self.buy_runner.stop_reason != "points_exhausted":
+            self.on_log(
+                f"组合模式：买车阶段停止原因={self.buy_runner.stop_reason or '总时间到/未知'}，先不继续切 EventLab。"
+            )
+            return False
+        self.on_log("组合模式：确认是技术点数不足，开始退回自由漫游并打开 EventLab。")
+        return True
+
+    def _run_farm_phase(self, farm_seconds, auto_focus, require_foreground):
+        self.on_log(
+            f"组合模式：已到 EventLab 开始赛事菜单，交给刷技能点模式跑 {farm_seconds / 60:.0f} 分钟"
+            "（到点后会等当前比赛跑完再按 A 退出，不会突然中断比赛）。"
+        )
+        self.smart_runner.start(
+            startup_delay=0.0,
+            total_seconds=farm_seconds,
+            auto_focus=auto_focus,
+            require_foreground=require_foreground,
+        )
+        while self.smart_runner.is_running() and not self._stop.is_set():
+            if not self._sleep(0.25):
+                break
+        if self._stop.is_set():
+            return False
+        self.on_log(
+            f"组合模式：刷技能点模式已结束（原因={self.smart_runner.exit_reason or '未知'}）。"
+        )
+        return True
+
+    def _exit_eventlab_to_pause_menu(self, pad, auto_focus, require_foreground):
+        # SmartRunner just pressed A on the results page. Forza typically
+        # animates back to either free roam or an event hub menu over a few
+        # seconds; let it settle before we try to detect anything.
+        initial_wait = float(getattr(config, "COMBO_EXIT_TO_PAUSE_INITIAL_WAIT", 5.0))
+        self.on_log(
+            f"组合模式：等待 {initial_wait:.0f} 秒让游戏从结算页过渡，再尝试打开暂停菜单。"
+        )
+        if not self._sleep(initial_wait):
+            return False
+
+        max_attempts = int(getattr(config, "COMBO_EXIT_TO_PAUSE_MAX_ATTEMPTS", 8))
+        recovery_wait = float(getattr(config, "COMBO_EXIT_TO_PAUSE_A_WAIT", 2.0))
+
+        for attempt in range(1, max_attempts + 1):
+            if self._stop.is_set():
+                return False
+
+            # Early-out if the pause menu somehow opened already (e.g. user
+            # opened it manually, or a previous Menu tap took effect late).
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+            self.logger.info(
+                "Combo exit-to-pause attempt=%d pre-menu state=%s confidence=%.3f",
+                attempt,
+                detection.state,
+                detection.confidence,
+            )
+            if detection.state == STATE_PAUSE_MENU:
+                self.on_log("组合模式：已经在暂停菜单，不再额外按 Menu。")
+                return True
+            if detection.state == STATE_CONTROLLER_DISCONNECTED:
+                self.on_log("组合模式：检测到控制器未连接弹窗，按 A 恢复。")
+                if not self._tap(pad, "a", after=1.0):
+                    return False
+                continue
+
+            self.on_log(
+                f"组合模式：尝试按 Menu 打开暂停菜单（第 {attempt}/{max_attempts} 次）。"
+            )
+            if not self._tap(pad, "start", after=1.5):
+                return False
+
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+            self.logger.info(
+                "Combo exit-to-pause attempt=%d post-menu state=%s confidence=%.3f",
+                attempt,
+                detection.state,
+                detection.confidence,
+            )
+            if detection.state == STATE_PAUSE_MENU:
+                self.on_log("组合模式：已确认暂停菜单，移交给买车阶段。")
+                return True
+
+            # Menu didn't get us to the pause menu, so we probably weren't in
+            # free roam yet — still on some EventLab post-race menu. Press A to
+            # advance past it (e.g. "继续" prompt), wait, then try Menu again.
+            self.on_log(
+                f"组合模式：当前状态 {detection.state}，按 Menu 没到暂停菜单，再按 A 推进一下。"
+            )
+            if not self._tap(pad, "a", after=recovery_wait):
+                return False
+
+        self.on_log("组合模式：连续按 Menu/A 都没回到暂停菜单，放弃这轮循环。")
+        return False
 
     def _navigate_to_eventlab_prestart(self, pad, auto_focus, require_foreground):
         if not self._ensure_foreground(auto_focus, require_foreground):
@@ -254,6 +376,123 @@ class ComboRunner:
             return False
         return self._wait_for_prestart(pad, auto_focus, require_foreground)
 
+    def _try_resume_eventlab_prestart(self, pad, auto_focus, require_foreground):
+        """Resume cleanly when the previous run stopped inside EventLab."""
+        if not self._ensure_foreground(auto_focus, require_foreground):
+            return False
+
+        try:
+            smart_detection = self.smart_runner.detect_once()
+        except Exception as exc:
+            self.logger.warning("Combo resume smart detection failed: %s", exc)
+            smart_detection = None
+        if smart_detection and smart_detection.state in (STATE_PRESTART, STATE_PRESTART_WRONG_SELECTION):
+            self.on_log("组合模式：启动时已在 EventLab 开始赛事菜单，直接续接刷分。")
+            return True
+
+        detection = self._detect_buy(auto_focus, require_foreground)
+        if detection is None:
+            return False
+
+        resumable_states = {
+            STATE_EVENTLAB_MENU,
+            STATE_EVENTLAB_EVENTS,
+            STATE_EVENTLAB_FAVORITES,
+            STATE_EVENTLAB_RACE_TYPE,
+            STATE_EVENTLAB_MY_CARS,
+            STATE_EVENTLAB_MY_CARS_22B_READY,
+            STATE_EVENTLAB_FILTER,
+        }
+        if detection.state not in resumable_states:
+            return False
+
+        self.on_log(f"组合模式：启动时检测到 EventLab 中途页面 {detection.state}，尝试从这里续接。")
+
+        if detection.state == STATE_EVENTLAB_FILTER:
+            self.on_log("组合模式：当前在筛选弹窗，先按 B 回到我的车辆页。")
+            if not self._tap(pad, "b", after=1.0):
+                return False
+            if not self._wait_buy_state(
+                "EventLab 我的车辆页",
+                {STATE_EVENTLAB_MY_CARS, STATE_EVENTLAB_MY_CARS_22B_READY},
+                timeout=6.0,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+                pad=pad,
+            ):
+                return False
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+
+        if detection.state == STATE_EVENTLAB_MENU:
+            self.on_log("组合模式：已在 EventLab 首页，按 A 进入赛事页继续。")
+            if not self._tap(pad, "a", after=1.6):
+                return False
+            if not self._wait_buy_state(
+                "EventLab 赛事页",
+                {STATE_EVENTLAB_EVENTS, STATE_EVENTLAB_FAVORITES},
+                timeout=10.0,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+                pad=pad,
+            ):
+                return False
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+
+        if detection.state == STATE_EVENTLAB_EVENTS:
+            if not self._move_to_eventlab_favorites(pad, auto_focus, require_foreground):
+                return False
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+
+        if detection.state == STATE_EVENTLAB_FAVORITES:
+            self.on_log("组合模式：已在 EventLab 我的收藏，按 A 进入当前收藏赛事。")
+            if not self._tap(pad, "a", after=2.0):
+                return False
+            if not self._wait_buy_state(
+                "比赛类型弹窗或我的车辆页",
+                {STATE_EVENTLAB_RACE_TYPE, STATE_EVENTLAB_MY_CARS, STATE_EVENTLAB_MY_CARS_22B_READY},
+                timeout=8.0,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+                pad=pad,
+            ):
+                return False
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+
+        if detection.state == STATE_EVENTLAB_RACE_TYPE:
+            self.on_log("组合模式：比赛类型保持“单人”，按 A。")
+            if not self._tap(pad, "a", after=2.0):
+                return False
+            if not self._wait_buy_state(
+                "EventLab 我的车辆页",
+                {STATE_EVENTLAB_MY_CARS, STATE_EVENTLAB_MY_CARS_22B_READY},
+                timeout=12.0,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+                pad=pad,
+            ):
+                return False
+            detection = self._detect_buy(auto_focus, require_foreground)
+            if detection is None:
+                return False
+
+        if detection.state == STATE_EVENTLAB_MY_CARS:
+            if not self._apply_favorite_filter(pad, auto_focus, require_foreground):
+                return False
+            return self._select_eventlab_22b(pad, auto_focus, require_foreground)
+
+        if detection.state == STATE_EVENTLAB_MY_CARS_22B_READY:
+            return self._select_eventlab_22b(pad, auto_focus, require_foreground)
+
+        return False
+
     def _confirm_or_close_points_modal(self, pad, auto_focus, require_foreground):
         detection = self._detect_buy(auto_focus, require_foreground)
         if detection and detection.state == STATE_SKILL_POINTS_EXHAUSTED:
@@ -263,61 +502,144 @@ class ComboRunner:
         return self._tap(pad, "a", after=1.0)
 
     def _move_to_creative_hub(self, pad, auto_focus, require_foreground):
-        self.on_log("组合模式：切到创意中心，识别到就停，最多按 6 次 RB。")
-        for press_index in range(0, 7):
+        max_presses = 6
+        self.on_log(
+            f"组合模式：切到创意中心，识别到就停，最多按 {max_presses} 次 RB。"
+        )
+        for press_index in range(0, max_presses + 1):
             detection = self._detect_buy(auto_focus, require_foreground)
             if detection is None:
                 return False
+            self.logger.info(
+                "Combo move-to-creative attempt=%d state=%s confidence=%.3f",
+                press_index,
+                detection.state,
+                detection.confidence,
+            )
             if detection.state == STATE_CREATIVE_HUB:
                 self.on_log("组合模式：已确认创意中心。")
                 return True
-            if press_index >= 6:
+            if press_index >= max_presses:
                 break
-            self.on_log(f"组合模式：还没到创意中心，按 RB（{press_index + 1}/6）。")
-            if not self._tap(pad, "rb", after=0.65):
+            self.on_log(
+                f"组合模式：当前状态 {detection.state}，还没到创意中心，按 RB（{press_index + 1}/{max_presses}）。"
+            )
+            if not self._tap(pad, "rb", after=0.7):
                 return False
         self.on_log("组合模式：未能确认创意中心，停止在当前页面。")
         return False
 
     def _move_to_eventlab_favorites(self, pad, auto_focus, require_foreground):
-        self.on_log("组合模式：切到 EventLab 我的收藏，识别到就停，最多按 9 次 RB。")
-        for press_index in range(0, 10):
+        max_presses = 12
+        self.on_log(
+            f"组合模式：切到 EventLab 我的收藏，识别到就停，最多按 {max_presses} 次 RB。"
+        )
+        for press_index in range(0, max_presses + 1):
             detection = self._detect_buy(auto_focus, require_foreground)
             if detection is None:
                 return False
+            self.logger.info(
+                "Combo move-to-favorites attempt=%d state=%s confidence=%.3f",
+                press_index,
+                detection.state,
+                detection.confidence,
+            )
             if detection.state == STATE_EVENTLAB_FAVORITES:
                 self.on_log("组合模式：已确认我的收藏。")
                 return True
-            if press_index >= 9:
+            active_tab = int(detection.scores.get("ocr_eventlab_active_tab", 0.0) or 0)
+            if active_tab == 7:
+                self.on_log("组合模式：顶部高亮已经是我的收藏，按当前页继续。")
+                return True
+            if press_index >= max_presses:
                 break
-            self.on_log(f"组合模式：还没到我的收藏，按 RB（{press_index + 1}/9）。")
-            if not self._tap(pad, "rb", after=0.45):
+            if active_tab > 7:
+                button = "lb"
+                direction = "LB 回退"
+            else:
+                button = "rb"
+                direction = "RB 前进"
+            self.on_log(
+                f"组合模式：当前状态 {detection.state}，active_tab={active_tab or '未知'}，还没到我的收藏，按 {direction}（{press_index + 1}/{max_presses}）。"
+            )
+            if not self._tap(pad, button, after=0.8):
                 return False
         self.on_log("组合模式：未能确认我的收藏，停止在当前页面。")
         return False
 
     def _apply_favorite_filter(self, pad, auto_focus, require_foreground):
-        self.on_log("组合模式：我的车辆页按 Y 打开筛选，只保留收藏车辆。")
+        # The filter checkbox state is hard to read reliably (the existing
+        # color sample sits at the wrong pixel and can return either value),
+        # so use a deterministic reset-then-check sequence:
+        #   Y  -> open filter
+        #   X  -> reset all filters (everything becomes unchecked)
+        #   A  -> toggle 收藏 on (cursor defaults to the 收藏 row when opening)
+        #   B  -> close the popup
+        # This way we always end with exactly "收藏" enabled, regardless of any
+        # filters the user (or a previous run) left behind.
+        self.on_log("组合模式：我的车辆页按 Y 打开筛选弹窗。")
         if not self._tap(pad, "y", after=1.0):
             return False
-        if not self._wait_buy_state("车辆筛选弹窗", {STATE_EVENTLAB_FILTER}, timeout=8.0, auto_focus=auto_focus, require_foreground=require_foreground, pad=pad):
+        if not self._wait_buy_state(
+            "车辆筛选弹窗",
+            {STATE_EVENTLAB_FILTER},
+            timeout=8.0,
+            auto_focus=auto_focus,
+            require_foreground=require_foreground,
+            pad=pad,
+        ):
+            # Y might have been swallowed if the page was still settling. Retry once.
+            self.on_log("组合模式：第一次 Y 没看到筛选弹窗，再按一次 Y。")
+            if not self._tap(pad, "y", after=1.0):
+                return False
+            if not self._wait_buy_state(
+                "车辆筛选弹窗",
+                {STATE_EVENTLAB_FILTER},
+                timeout=6.0,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+                pad=pad,
+            ):
+                return False
+
+        self.on_log("组合模式：按 X 重置筛选，确保只剩“收藏”需要打勾。")
+        if not self._tap(pad, "x", after=0.8):
             return False
 
+        # After X reset, we should still be on the filter popup with the cursor
+        # on 收藏. Confirm we are still in FILTER state before pressing A.
         detection = self._detect_buy(auto_focus, require_foreground)
         if detection is None:
             return False
-        if detection.scores.get("ocr_eventlab_filter_favorite_checked", 0.0) >= 0.5:
-            self.on_log("组合模式：筛选里的“收藏”已经勾选，直接按 B 返回车辆列表。")
-        else:
-            self.on_log("组合模式：筛选里的“收藏”未勾选，按 A 勾选。")
-            if not self._tap(pad, "a", after=0.8):
+        if detection.state != STATE_EVENTLAB_FILTER:
+            self.on_log(
+                f"组合模式：按 X 后状态变成 {detection.state}，重新尝试打开筛选弹窗。"
+            )
+            if not self._tap(pad, "y", after=1.0):
                 return False
-            detection = self._detect_buy(auto_focus, require_foreground)
-            if detection and detection.state == STATE_EVENTLAB_FILTER:
-                if detection.scores.get("ocr_eventlab_filter_favorite_checked", 0.0) >= 0.5:
-                    self.on_log("组合模式：已确认“收藏”筛选被勾选。")
-                else:
-                    self.on_log("组合模式：已按 A 切换“收藏”筛选，返回后用车辆页结果继续确认。")
+            if not self._wait_buy_state(
+                "车辆筛选弹窗",
+                {STATE_EVENTLAB_FILTER},
+                timeout=6.0,
+                auto_focus=auto_focus,
+                require_foreground=require_foreground,
+                pad=pad,
+            ):
+                return False
+
+        self.on_log("组合模式：按 A 勾选“收藏”。")
+        if not self._tap(pad, "a", after=0.8):
+            return False
+
+        # Verify (best-effort) the checkbox now reports checked. If not, we
+        # still press B – the worst case is the unfiltered list is shown, but
+        # _select_eventlab_22b can still find 22B by OCR text.
+        detection_after = self._detect_buy(auto_focus, require_foreground)
+        if detection_after and detection_after.state == STATE_EVENTLAB_FILTER:
+            if detection_after.scores.get("ocr_eventlab_filter_favorite_checked", 0.0) >= 0.5:
+                self.on_log("组合模式：已识别到“收藏”勾选。")
+            else:
+                self.on_log("组合模式：色块检查没确认勾选，相信按键序列已勾上。")
 
         if not self._tap(pad, "b", after=1.4):
             return False
@@ -335,6 +657,7 @@ class ComboRunner:
         last_move = None
         target_missing_after_move = False
         unknown_selected_count = 0
+        delta_zero_streak = 0  # consecutive frames where target_col == selected_col
 
         for attempt in range(1, 22):
             detection = self._detect_buy(auto_focus, require_foreground)
@@ -408,11 +731,31 @@ class ComboRunner:
             unknown_selected_count = 0
             delta = target_col - selected_col
             if delta == 0:
-                self.on_log("组合模式：22B 文本列和高亮列一致，等待下一次双确认。")
+                delta_zero_streak += 1
+                if delta_zero_streak >= 3:
+                    # The OCR text column and the selected highlight column have
+                    # agreed three frames in a row. Even though the lime ratio
+                    # check failed to upgrade the state to MY_CARS_22B_READY
+                    # (the "current car" yellow border can be thinner than the
+                    # cursor highlight), we trust the column match and press A.
+                    self.on_log(
+                        "组合模式：22B 文本列和高亮列连续 3 帧一致，按 A 选择 22B。"
+                    )
+                    if not self._tap(pad, "a", after=2.0):
+                        return False
+                    if self._wait_for_prestart(pad, auto_focus, require_foreground):
+                        return True
+                    self.on_log("组合模式：按 A 后未进入开始赛事菜单，回到选车页继续观察。")
+                    delta_zero_streak = 0
+                    continue
+                self.on_log(
+                    f"组合模式：22B 文本列和高亮列一致（第 {delta_zero_streak}/3 次确认）。"
+                )
                 if not self._sleep(0.7):
                     return False
                 continue
 
+            delta_zero_streak = 0
             button = "dpad_right" if delta > 0 else "dpad_left"
             last_move = button
             self.on_log(

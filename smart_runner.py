@@ -27,6 +27,8 @@ class SmartRunner:
         self.detector = ForzaScreenDetector()
         self._thread = None
         self._stop = threading.Event()
+        self._graceful_exit = threading.Event()
+        self.exit_reason = None  # "manual_stop" | "total_time" | "graceful_exit" | "race_exit"
 
     def is_running(self):
         return self._thread is not None and self._thread.is_alive()
@@ -53,7 +55,20 @@ class SmartRunner:
 
     def stop(self):
         self.logger.info("SmartRunner stop requested")
+        self.exit_reason = "manual_stop"
         self._stop.set()
+
+    def request_graceful_exit(self):
+        """Ask the runner to exit cleanly at the next results page.
+
+        Instead of pressing X to restart, the runner will press A to leave the
+        race and then break the loop so the caller (e.g. ComboRunner) can take
+        over the next steps.
+        """
+        if not self._graceful_exit.is_set():
+            self.logger.info("SmartRunner graceful exit requested")
+            self.on_log("智能识别：收到平滑退出请求，等当前比赛跑完后按 A 退出。")
+        self._graceful_exit.set()
 
     def detect_once(self):
         hwnd = focus.find_window(config.GAME_TITLE)
@@ -78,6 +93,9 @@ class SmartRunner:
             self.on_log(f"无法启动虚拟手柄：{exc}")
             return
 
+        self._graceful_exit.clear()
+        self.exit_reason = None
+
         if startup_delay > 0:
             self.on_log(f"{startup_delay:.0f} 秒后开始智能识别，请保持游戏可见。")
             if not self._sleep(startup_delay):
@@ -95,14 +113,35 @@ class SmartRunner:
         last_disconnect_retry = 0.0
         disconnect_exhausted_logged = False
         unknown_since = None
+        graceful_logged_total = False
+        graceful_started_at = None
+        overtime_cap = float(
+            getattr(config, "COMBO_EVENTLAB_EXIT_MAX_OVERTIME", 15 * 60)
+        )
         self.on_log("智能识别已启动：图1先确认光标在开始赛事再按A，图2按住油门，图3按X，图4按A；暂停菜单按B返回。")
 
         try:
             while not self._stop.is_set():
                 if total_seconds is not None and time.monotonic() - started >= total_seconds:
-                    self.logger.info("SmartRunner total runtime reached")
-                    self.on_log("总运行时间已到，自动停止并回正手柄；想一直跑请把总运行时间填 0。")
-                    break
+                    if not graceful_logged_total:
+                        graceful_logged_total = True
+                        graceful_started_at = time.monotonic()
+                        self.logger.info("SmartRunner total runtime reached, switching to graceful exit")
+                        self.on_log(
+                            "总运行时间已到：进入平滑退出，比赛跑完到结算页会按 A 退出，把控制权交给上层。"
+                        )
+                        self._graceful_exit.set()
+                    if (
+                        graceful_started_at is not None
+                        and time.monotonic() - graceful_started_at >= overtime_cap
+                    ):
+                        self.logger.info("SmartRunner graceful exit hit overtime cap")
+                        self.on_log(
+                            f"平滑退出已经等了 {overtime_cap / 60:.0f} 分钟，强制停止；"
+                            "如果你需要更长等待，可以改 COMBO_EVENTLAB_EXIT_MAX_OVERTIME。"
+                        )
+                        self.exit_reason = self.exit_reason or "total_time"
+                        break
 
                 if require_foreground and not focus.is_foreground(config.GAME_TITLE):
                     pad.neutral()
@@ -183,6 +222,16 @@ class SmartRunner:
                     pad.neutral()
                     in_race = False
                     lap += 1
+                    if self._graceful_exit.is_set():
+                        self.on_log(
+                            f"图3：第 {lap} 圈完成，平滑退出：按 A 退出比赛，让组合模式接管。"
+                        )
+                        pad.tap("a", hold=0.15)
+                        self.exit_reason = self.exit_reason or "graceful_exit"
+                        if not self._sleep(config.SMART_MENU_POLL_SECONDS * 3):
+                            break
+                        self.logger.info("SmartRunner exiting after graceful A on results")
+                        break
                     self.on_log(f"图3：第 {lap} 圈完成，按 X 重来。")
                     pad.tap("x", hold=0.15)
                     if not self._sleep(config.SMART_MENU_POLL_SECONDS):
@@ -191,6 +240,17 @@ class SmartRunner:
                 elif state == STATE_CONFIRM_RESTART:
                     pad.neutral()
                     in_race = False
+                    if self._graceful_exit.is_set():
+                        # We were in the middle of pressing X→A loop. The user wants
+                        # us to back out, so press B to dismiss the confirm modal and
+                        # wait for results again (where we'll press A instead).
+                        self.on_log(
+                            "图4：平滑退出中，按 B 取消重开，等下次结算页用 A 退出。"
+                        )
+                        pad.tap("b", hold=0.15)
+                        if not self._sleep(config.SMART_MENU_POLL_SECONDS * 2):
+                            break
+                        continue
                     self.on_log("图4：按 A 确认重开。")
                     pad.tap("a", hold=0.15)
                     if not self._sleep(config.SMART_MENU_POLL_SECONDS * 2):

@@ -855,9 +855,35 @@ class BuyCarRunner:
             self._invalidate_ocr()
             pad.tap(button, hold=0.18)
             self._invalidate_ocr()
-            if not self._sleep(delay):
+            if button == "a":
+                if not self._sleep_and_watch_mastery_after_a(delay):
+                    return False
+            elif not self._sleep(delay):
                 return False
         return self._confirm_wheelspin_mastery()
+
+    def _sleep_and_watch_mastery_after_a(self, total_seconds):
+        # A on the 22B mastery grid can open the "not enough skill points" modal.
+        # Check immediately here so the following fixed-sequence directions do not
+        # accidentally close the modal before the combo runner can take over.
+        deadline = time.monotonic() + max(total_seconds, 0.75)
+        wait = 0.25
+        while time.monotonic() < deadline and not self._stop.is_set():
+            remaining = deadline - time.monotonic()
+            if not self._sleep(min(wait, max(0.05, remaining))):
+                return False
+            self._invalidate_ocr()
+            try:
+                detection = self.detect_once()
+            except Exception as exc:
+                self.logger.warning("Failed to watch mastery A result: %s", exc)
+                wait = 0.20
+                continue
+            if self._is_points_exhausted_detection(detection, include_generic_modal=True):
+                self._mark_points_exhausted("车辆熟练度：A 后检测到技术点数不足弹窗，停止固定序列。")
+                return False
+            wait = 0.20
+        return not self._stop.is_set()
 
     def _confirm_wheelspin_mastery(self):
         saw_non_purchase_modal = False
@@ -871,15 +897,8 @@ class BuyCarRunner:
                 self.on_log("车辆熟练度：固定序列已按完，但截图验证失败，先停止，避免错循环。")
                 return False
             text = detection.ocr_text or ""
-            if (
-                detection.state == STATE_SKILL_POINTS_EXHAUSTED
-                or "不够购买额外加成" in text
-                or "技术点数不足" in text
-                or "不足以解锁" in text
-            ):
-                self.points_exhausted = True
-                self.stop_reason = "points_exhausted"
-                self.on_log("车辆熟练度：检测到技术点数不足弹窗。")
+            if self._is_points_exhausted_detection(detection, include_generic_modal=True):
+                self._mark_points_exhausted("车辆熟练度：检测到技术点数不足弹窗。")
                 return False
             if detection.state == STATE_CONFIRM_MODAL or (
                 detection.scores.get("modal_lime", 0.0) >= 0.05
@@ -898,6 +917,31 @@ class BuyCarRunner:
             return False
         self.on_log("车辆熟练度：固定序列按完但没有确认到“抽奖精灵”，先停止，避免带着错误加点继续循环。")
         return False
+
+    def _is_points_exhausted_detection(self, detection, include_generic_modal=False):
+        if detection is None:
+            return False
+        text = detection.ocr_text or ""
+        if detection.state == STATE_SKILL_POINTS_EXHAUSTED:
+            return True
+        if (
+            "不够购买额外加成" in text
+            or "技术点数不足" in text
+            or "不足以解锁" in text
+            or "额外加成" in text
+        ):
+            return True
+        if include_generic_modal and detection.state == STATE_CONFIRM_MODAL:
+            return (
+                detection.scores.get("modal_lime", 0.0) >= 0.04
+                and detection.scores.get("modal_price_yellow", 0.0) < 0.02
+            )
+        return False
+
+    def _mark_points_exhausted(self, message):
+        self.points_exhausted = True
+        self.stop_reason = "points_exhausted"
+        self.on_log(message)
 
     @staticmethod
     def _opposite_move(move):
