@@ -12,6 +12,7 @@ import focus
 from ocr_engine import OcrReader
 from v2.semantic import ForzaSemanticAnalyzer
 from v3.dataset import generate_yolo_dataset
+from v3.dataset_audit import audit_dataset, render_markdown, write_report
 from v3.hybrid import HybridVisionRecognizer
 from v3.sample_collector import SampleCollector
 from v3.yolo_detector import DEFAULT_MODEL, YoloOnnxDetector, resolve_asset_path
@@ -117,7 +118,8 @@ class VisionRecognizerApp:
         ttk.Button(button_bar, text="开始实时", command=self.start_live).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="停止", command=self.stop_live).pack(side="left", padx=(0, 8))
         ttk.Button(button_bar, text="保存训练样本", command=self.save_training_sample).pack(side="left", padx=(0, 8))
-        ttk.Button(button_bar, text="生成YOLO数据集", command=self.generate_dataset).pack(side="left")
+        ttk.Button(button_bar, text="生成YOLO数据集", command=self.generate_dataset).pack(side="left", padx=(0, 8))
+        ttk.Button(button_bar, text="审计样本缺口", command=self.audit_samples).pack(side="left")
 
         self.canvas = tk.Canvas(left, bg="#102e29", highlightthickness=0)
         self.canvas.grid(row=3, column=0, sticky="nsew")
@@ -345,6 +347,16 @@ class VisionRecognizerApp:
             self.text.insert("1.0", json.dumps(summary, ensure_ascii=False, indent=2))
         except Exception as exc:
             messagebox.showerror("YOLO 数据集", str(exc))
+
+    def audit_samples(self):
+        try:
+            report = audit_dataset()
+            json_path, md_path = write_report(report)
+            self.status_var.set(f"样本缺口审计完成：{md_path}")
+            self.text.delete("1.0", "end")
+            self.text.insert("1.0", render_markdown(report))
+        except Exception as exc:
+            messagebox.showerror("样本缺口审计", str(exc))
 
     def copy_result(self):
         if not self.last_v3:

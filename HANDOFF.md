@@ -1,5 +1,35 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-29 hotfix 15 - Dataset audit and targeted collection plan
+
+User asked how to solve the gap where the dataset is already over 1GB but still has insufficient sample balance. The answer is now implemented as tooling, not just advice.
+
+Changes:
+- `v3/dataset_audit.py`: new audit CLI that reads YOLO labels/images, `summary.json`, and raw `metadata.json`, then reports class deficits, screen-semantic deficits, empty labels, missing images, invalid label rows, repeated label geometries, window-size distribution, and a prioritized collection plan.
+- `v3/gui_v3.py`: added a "审计样本缺口" button that writes `reports/dataset_audit_latest.md/json` and displays the plan in the GUI.
+- `v3/dataset.py`: `data.yaml` generation no longer forces an absolute local path when the dataset root is passed as a relative path.
+- `tests/test_v3_dataset_audit.py`: regression coverage for class deficit calculation, screen deficit calculation, markdown output, and relative `data.yaml` paths.
+- `README_VISION.md`: added the dataset audit command and current top deficits.
+
+Latest local audit command:
+```powershell
+python -m v3.dataset_audit --raw-root datasets\forza_ui\raw --dataset-root datasets\forza_ui\yolo --output-dir reports
+```
+
+Latest audit summary:
+- raw metadata: 995
+- YOLO images: 993
+- YOLO labels: 993
+- empty label files: 218
+- missing label images: 0
+- invalid label lines: 0
+- possible duplicate label signatures: 647
+- top deficits: `vehicle_buy_grid` 2/100, `my_cars_card_focus` 22/120, `eventlab_my_cars` 14/100, `eventlab_filter` 0/60, `race_pause_menu` 0/60, `race_result` 5/80, `post_race_next` 4/80.
+
+Interpretation:
+- The 1GB+ dataset size is mostly high-resolution PNG volume and repeated/near-repeated pages. It does not mean enough effective labeled diversity.
+- Next collection should be quota-driven: buy-grid/vehicle-grid, EventLab filter, race pause locked UI, race menu, race result/post-race, color/design/purchase flow, and different real window sizes.
+
 ## 2026-05-29 hotfix 14 - Full V4 mode-three run completed
 
 This pass finished the requested V4 validation using the current V3/V4 recognition stack and the packaged executable. V1 stable runner files were not edited.

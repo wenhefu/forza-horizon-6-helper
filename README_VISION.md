@@ -171,6 +171,24 @@ EventLab/比赛页采样：
 .venv\Scripts\python.exe -m v3.dataset --no-augment
 ```
 
+样本缺口审计：
+
+```bat
+.venv\Scripts\python.exe -m v3.dataset_audit --raw-root datasets\forza_ui\raw --dataset-root datasets\forza_ui\yolo --output-dir reports
+```
+
+GUI 里也有“审计样本缺口”按钮，会输出 `reports\dataset_audit_latest.md/json`。这个工具同时看 YOLO 标注类别和 raw 页面语义覆盖，避免只看 1GB+ 图片体积误判为“样本够了”。
+
+当前审计重点缺口：
+
+- `vehicle_buy_grid`: 2/100，购买车辆网格严重不足。
+- `my_cars_card_focus`: 22/120，车辆卡片焦点不足，尤其 22B/非 22B/不同滚动位置。
+- `eventlab_my_cars`: 14/100，EventLab 选车页不足。
+- `eventlab_filter`: 0/60，收藏筛选空框/已勾选/焦点移动真实样本不足。
+- `race_pause_menu`: 0/60，比赛中带锁暂停菜单不足。
+- `race_result`: 5/80，`post_race_next`: 4/80，赛后链路不足。
+- `color_select`、`design_card_focus`、`car_preview` 都低于 5 个有效标注，需要补购买流程和待机展示分支。
+
 当前 16 类：
 
 ```text

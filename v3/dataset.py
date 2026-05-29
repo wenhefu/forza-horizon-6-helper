@@ -96,7 +96,7 @@ def _augmentations(image: Image.Image, detections: list[VisionDetection]):
 def _write_data_yaml(dataset_root: Path) -> None:
     names = "\n".join(f"  {index}: {name}" for index, name in enumerate(VISION_CLASSES))
     content = (
-        f"path: {dataset_root.resolve().as_posix()}\n"
+        f"path: {dataset_root.as_posix()}\n"
         "train: images/train\n"
         "val: images/val\n"
         f"nc: {len(VISION_CLASSES)}\n"
