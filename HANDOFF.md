@@ -13,7 +13,9 @@ Live-smoke results:
 - Smoke 2: farm loop started a race and completed 3 laps (race_hud seen, results->X restart, restart modal->A). Then a DpadUp "calibrate" press on a misread start-line frame opened Photo Mode -> fixed in 17 (DpadUp removed + launch window).
 - Smoke 4 (after fixes): started via A, then 25 `results->X` cycles in 60s + graceful exit at the time limit, NO Photo Mode, clean completion.
 
-OPEN QUESTION (needs verification): smoke 4 logged 25 `race_result->X` cycles in 60s with NO `race_hud` frame. Either the `SP Farm / 24s` event completes near-instantly (genuine fast farming) or the loop is X-ing a screen it mis-reads as `race_result` (no real racing). Do NOT add a "require race_hud between starts" guard until the event's true duration is known -- it could false-flag a legitimately instant farm. Resolve by user visual confirmation (did the car drive / did skill points rise?) or a self-verifying instrumented run.
+RESOLVED (smoke 5, instrumented): the self-verify summary reported `起赛/重开 3 次, 识别到驾驶画面 24 帧` -- 24 confirmed `race_hud` (driving) frames across 3 laps, i.e. the loop genuinely races (not spinning on a misread results page). The full cycle ran clean: race_hud -> results -> X restart -> confirm modal -> A -> start (incl. the empty-focus pause_story -> A start path) -> race_hud. No Photo Mode.
+
+Remaining bug found in smoke 5 and fixed: `_exit_after_farm` got stuck pressing `B` on the post-race `race_result` standings page (B does not leave it) -> `exit_after_farm_failed`. Fixed: `_exit_after_farm` now presses `A` on `race_result` to advance (results -> next -> free roam) before falling back to B. So the farm itself worked end-to-end; only the between-cycles cleanup needed this.
 
 Verification: `python -m pytest -q` -> 111 passed, 22 skipped. No V1 stable files changed.
 

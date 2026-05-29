@@ -498,6 +498,12 @@ class V4Mode3Runner:
             if str(screen).startswith("pause_") or screen in ("pause_menu", "race_menu", "race_pause_menu"):
                 self._log("V4 已回到可安全交还的菜单。")
                 return True
+            if screen == "race_result":
+                # Post-race results/standings: advance with A (B does not leave
+                # this page) toward post_race_next / free roam.
+                if not self._tap(pad, "a", after=1.8):
+                    return False
+                continue
             if screen == "post_race_next":
                 if not self._tap(pad, "b", after=2.0):
                     return False
