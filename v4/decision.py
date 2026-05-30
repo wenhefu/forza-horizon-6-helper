@@ -553,22 +553,22 @@ def _eventlab_my_cars_decision(
     confidence: float,
     context: RouteContext,
 ) -> V4Decision:
-    if is_22b(selected_item):
-        return V4Decision(
-            "select_22b_for_eventlab",
-            "A",
-            "EventLab 车辆列表中选中的车已确认是 Impreza 22B-STI。",
-            "按后必须重新识别到 race_menu；如果仍在车辆列表，必须重新确认 22B 再补按。",
-            max(confidence, 0.84),
-        )
-
     if not context.favorite_filter_done:
         return V4Decision(
             "open_vehicle_favorite_filter",
             "Y",
-            "车辆列表当前不是 22B，先打开筛选，只勾选收藏来缩小范围。",
+            "进入 EventLab 车辆列表后，先打开筛选并确认收藏过滤；即使当前焦点看起来是 22B，也先验证筛选状态。",
             "按后必须重新识别到 eventlab_filter；在筛选里根据勾选状态决定 A 或 B。",
             max(confidence, 0.72),
+        )
+
+    if is_22b(selected_item):
+        return V4Decision(
+            "select_22b_for_eventlab",
+            "A",
+            "收藏筛选已确认，且 EventLab 车辆列表中选中的车已确认是 Impreza 22B-STI。",
+            "按后必须重新识别到 race_menu；如果仍在车辆列表，必须重新确认 22B 再补按。",
+            max(confidence, 0.84),
         )
 
     if context.vehicle_card_moves < 10:

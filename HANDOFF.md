@@ -1,5 +1,16 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-05-30 hotfix 23 - Require EventLab vehicle favorite filter before selecting 22B
+
+Latest GUI report (`reports/v4_mode3_latest.json`, 2026-05-30 09:53:31-09:57:04) showed V4 reaching `eventlab_my_cars` with selected item `IMPREZA 22B-STI VERSION` and immediately issuing `select_22b_for_eventlab`. That skipped the intended `Y -> 收藏筛选 -> B` verification because `_eventlab_my_cars_decision()` checked `is_22b()` before `favorite_filter_done`.
+
+Changed:
+- `v4/decision.py`: `eventlab_my_cars` now opens the vehicle filter first whenever `favorite_filter_done` is false, even if OCR says the current focused car is 22B. Only after the filter is confirmed and returned does V4 allow `select_22b_for_eventlab`.
+- `tests/test_v4_mode3.py`: added a regression that 22B without `favorite_filter_done` produces `open_vehicle_favorite_filter` / `Y`.
+
+Report note:
+- The same report took 212.7s and failed as `farm_phase_failed` after stopping during/just after handoff. Buy-phase semantic monitoring was the slowest part: 26 buy monitor samples accumulated 80.3s of recognition time, especially dense car-grid/manufacturer OCR samples. This is mostly V1 `BuyCarRunner` + full OCR supervision, not the V3 farm loop itself.
+
 ## 2026-05-30 hotfix 22 - V4 GUI, resilient loop recovery, standalone packaging
 
 Builds on hotfix 21's outer loop.

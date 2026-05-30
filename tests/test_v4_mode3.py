@@ -261,6 +261,15 @@ def test_eventlab_target_event_and_22b_are_enterable():
     assert car.button == "A"
 
 
+def test_eventlab_my_cars_requires_favorite_filter_before_selecting_22b():
+    decision = decide_mode3_navigation(
+        fake_v3("eventlab_my_cars", selected_item="IMPREZA 22B-STI VERSION"),
+        RouteContext(favorite_filter_done=False),
+    )
+    assert decision.name == "open_vehicle_favorite_filter"
+    assert decision.button == "Y"
+
+
 def test_race_hud_is_terminal_navigation_success():
     decision = decide_mode3_navigation(fake_v3("race_hud"), RouteContext())
     assert decision.name == "arrived_race_hud"
