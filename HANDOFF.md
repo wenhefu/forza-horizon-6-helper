@@ -1,5 +1,10 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 V5 phase 3a - event-driven reactor core
+
+`v5/reactor.py` (`EventReactor`): replaces V4's "press -> fixed sleep (0.85-1.15s) -> recognize" cadence with "press -> WATCH the frame stream -> react the instant the state changes (or a per-step timeout)". This is the felt-latency engine. Generic + fully injectable (recognize / decide / press / clock), so it works with either `v5.screen_registry.next_button` or the proven `v4.decision.decide_*` (both expose `.button`/`.name`/optional `.terminal`), and is unit-testable without a game. Handles: wait decisions (empty button), no-progress stall, step-timeout re-press, stop-event, max-seconds. `tests/test_v5_reactor.py` uses a fake clock + fake game (deterministic, no real time) and asserts it never sleeps longer than the poll interval (no fixed settle). 165 passed, 22 skipped.
+- Remaining: phase 3b - wire a runnable V5 mode (recognize = `V4Recognizer(capture_engine=CaptureEngine)`, decide = registry/`decide_*`, press = pad, dxcam-`unknown` -> synchronous PrintWindow fallback for occlusion) + a GUI toggle + repackage + IN-GAME validation with the user (this is the step that needs you driving, like the V4 cycles).
+
 ## 2026-06-01 V5 phase 2a - focus-guarded + scan-capable navigator
 
 `v5/screen_registry.py`: the generic navigator now respects the game's focus semantics, so it can drive grid screens safely (the keystone of "understands Forza").
