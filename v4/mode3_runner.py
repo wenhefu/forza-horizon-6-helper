@@ -422,6 +422,7 @@ class V4Mode3Runner:
             auto_focus=auto_focus,
             require_foreground=require_foreground,
         )
+        handoff_streak = 0
         while self.buy_runner.is_running() and not self._stop.is_set():
             now = time.monotonic()
             if now >= next_monitor:
@@ -437,13 +438,30 @@ class V4Mode3Runner:
                         note="progress" if changed else f"stable_for={watchdog.elapsed_without_progress():.1f}s",
                     )
                     if self._buy_phase_can_handoff_to_v4(snapshot):
+                        # Debounce: a single car-grid frame can still mis-read as
+                        # eventlab_my_cars (same card-grid shape) and would abort the
+                        # purchase mid-way, leaving skill points unspent. Require TWO
+                        # consecutive monitor checks on an EventLab/race page before
+                        # handing off -- a genuine wander into EventLab persists, a
+                        # one-frame misread does not.
+                        handoff_streak += 1
+                        if handoff_streak >= 2:
+                            self._log(
+                                "V4 buy monitor sees an EventLab route page on 2 "
+                                "consecutive checks; stopping BuyCarRunner and handing "
+                                "off to V3/V4 navigation."
+                            )
+                            self.buy_runner.stop()
+                            self._join_buy_runner(timeout=5.0)
+                            return True
                         self._log(
-                            "V4 buy monitor sees an EventLab route page; "
-                            "stopping BuyCarRunner and handing off to V3/V4 navigation."
+                            f"V4 买车监控偶见疑似 EventLab 页({snapshot.v3.screen})；"
+                            "车卡网格可能被误判，先不交接，下一次再确认。"
                         )
-                        self.buy_runner.stop()
-                        self._join_buy_runner(timeout=5.0)
-                        return True
+                        if not self._sleep(0.25):
+                            break
+                        continue
+                    handoff_streak = 0
                     if (
                         str(snapshot.v3.screen) == "world_map"
                         and watchdog.elapsed_without_progress() >= self._buy_recovery_seconds()
@@ -546,6 +564,7 @@ class V4Mode3Runner:
         started = time.monotonic()
         self._log("V4 EventLab 导航启动：每次只按一个键，然后重新识别验证。")
 
+        arrived_streak = 0
         while not self._stop.is_set() and time.monotonic() - started <= max_route_seconds:
             if not self._ensure_foreground(auto_focus, require_foreground):
                 return False
@@ -558,8 +577,24 @@ class V4Mode3Runner:
             self._record_step(phase, snapshot, decision, note="progress" if changed else "")
 
             if smart_ready or decision.terminal:
-                self._log("V4 已确认到达 EventLab 开始赛事菜单。")
-                return True
+                # Debounce: at lower resolution V3 can mis-read free roam (the
+                # festival start line) as race_hud, and V1 smart mis-reads it as
+                # RACING -- a one-frame false "arrived" hands the farm an idle car
+                # in free roam (it then holds throttle). Require TWO consecutive
+                # arrival frames; a real start menu / race persists, a misread does
+                # not.
+                arrived_streak += 1
+                if arrived_streak >= 2:
+                    self._log("V4 已确认到达 EventLab 开始赛事菜单（连续 2 帧确认）。")
+                    return True
+                self._log(
+                    f"V4 疑似到达开始赛事菜单（screen={snapshot.v3.screen}，"
+                    f"smart={snapshot.smart_state}）；再确认一帧，防止自由漫游被误判成比赛。"
+                )
+                if not self._sleep(0.6):
+                    return False
+                continue
+            arrived_streak = 0
 
             if watchdog.stalled():
                 if not self._recover_stall(pad, snapshot, decision, watchdog, phase):

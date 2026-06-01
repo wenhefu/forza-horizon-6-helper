@@ -30,7 +30,11 @@ PRESETS_16_9: dict[str, tuple[int, int]] = {
     "1600x900": (1600, 900),
     "1920x1080": (1920, 1080),
 }
-DEFAULT_PRESET = "1600x900"
+# Default to 1920x1080: larger frames make the recognition (esp. the free-roam vs
+# race_hud and car-grid vs eventlab distinctions) far more reliable. The user found
+# 1600x900 caused mis-reads while 1920x1080 ran clean. Smaller presets stay
+# available for screens that can't fit 1080p.
+DEFAULT_PRESET = "1920x1080"
 
 # SetWindowPos flags: keep Z-order and focus untouched, only move/resize.
 _SWP_NOZORDER = 0x0004

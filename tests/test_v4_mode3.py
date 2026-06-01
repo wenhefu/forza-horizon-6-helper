@@ -1169,27 +1169,34 @@ def test_buy_phase_monitor_hands_off_after_buy_runner_started():
     runner.logger = SimpleNamespace(warning=lambda *args, **kwargs: None)
     runner._sleep = lambda _seconds: True
     runner._record_step = lambda *args, **kwargs: None
-    snapshots = iter(
-        [
-            SimpleNamespace(
-                v3=fake_v3("vehicle_buy_grid", selected_item="WRX STI"),
-                smart_state="",
-                smart_confidence=0.0,
-                elapsed_ms=1.0,
-            ),
-            SimpleNamespace(
-                v3=fake_v3("eventlab_home", selected_item="eventlab"),
-                smart_state="",
-                smart_confidence=0.0,
-                elapsed_ms=1.0,
-            ),
-        ]
+    # The buy monitor now DEBOUNCES the handoff: it needs TWO consecutive checks on
+    # an EventLab/race page before aborting the buy (a single car-grid frame can
+    # mis-read as eventlab_my_cars). Call 1 is the preflight (a buy grid); every
+    # later call returns the EventLab page, so the monitor confirms on its 2nd tick.
+    buy_grid = SimpleNamespace(
+        v3=fake_v3("vehicle_buy_grid", selected_item="WRX STI"),
+        smart_state="",
+        smart_confidence=0.0,
+        elapsed_ms=1.0,
     )
-    runner._recognize = lambda: next(snapshots)
+    eventlab = SimpleNamespace(
+        v3=fake_v3("eventlab_home", selected_item="eventlab"),
+        smart_state="",
+        smart_confidence=0.0,
+        elapsed_ms=1.0,
+    )
+    state = {"calls": 0}
+
+    def fake_recognize(*args, **kwargs):
+        state["calls"] += 1
+        return buy_grid if state["calls"] == 1 else eventlab
+
+    runner._recognize = fake_recognize
 
     assert V4Mode3Runner._run_buy_phase(runner, auto_focus=False, require_foreground=True)
     assert runner.buy_runner.start_count == 1
     assert runner.buy_runner.stop_count == 1
+    assert state["calls"] >= 3  # preflight + >=2 monitor checks (debounce)
 
 
 def test_buy_phase_monitor_keeps_buy_runner_on_buy_pages_even_if_smart_false_prestart():

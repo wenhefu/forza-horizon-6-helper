@@ -205,6 +205,12 @@ class VisionFarmRunner:
         v3 = snapshot.v3
         current_screen = str(getattr(v3, "screen", "") or "unknown")
         current_conf = float(getattr(v3, "confidence", 0.0) or 0.0)
+        # Free roam is NEVER a race. Trust V3's free_roam_hud over V1's smart so the
+        # farm never holds throttle in the open world -- the festival start line
+        # mis-reads as RACING for V1's fixed-fraction detector, and without this the
+        # RACING hint would force race_hud -> race_drive_throttle while parked.
+        if current_screen == "free_roam_hud":
+            return snapshot
         hinted_screen, hinted_selected, hinted_conf = hint
         override_screens = {
             "unknown",

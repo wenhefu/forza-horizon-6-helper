@@ -1,5 +1,14 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 hotfix 27 - debounce handoff/arrival + free-roam guard + 1080p default
+
+Multi-round live testing surfaced two more misread-driven bugs (both confirmed from `dist\reports\v4_mode3_latest.json`, the exe writes there since its CWD is dist):
+
+1. **Later rounds went to farm with skill points unspent.** The buy phase was working (the run bought 5 cars correctly), but a SINGLE monitor frame mis-read a car grid as `eventlab_my_cars` (step 53 of 54) -> `_buy_phase_can_handoff_to_v4` fired -> buy aborted before the 技术点数不足 modal. Worse in rounds 2/3 because the post-farm point pool is large, the buy phase runs long, and more monitor frames = higher chance of one misread. Fix: **debounce the buy->farm handoff -- require 2 consecutive monitor checks** on an EventLab/race page before aborting (`handoff_streak` in `_run_buy_phase`).
+2. **1600x900: after buying, the car idled in free roam holding throttle.** At smaller frames V3 mis-reads the festival start line as `race_hud` and V1 smart mis-reads it as RACING, so navigation falsely "arrived" and handed an idle car to the farm. Fixes: **debounce nav arrival -- require 2 consecutive arrival frames** (`arrived_streak` in `_navigate_to_eventlab_prestart`); the farm smart hint now **never treats `free_roam_hud` as a race** (`v4/farm_runner.py`); and the resize default is now **1920x1080** (larger frame = reliable recognition; 1600x900 mis-read, 1080p ran clean).
+
+These are decision-layer fixes (tolerate the occasional misread) -- no model retraining / sample collection needed. `test_buy_phase_monitor_hands_off_after_buy_runner_started` updated to the 2-frame debounce. 133 passed, 22 skipped.
+
 ## 2026-05-30 hotfix 26 - V4 mode-three end-to-end fixes + 16:9 window normalize
 
 Co-op debugging of a full buy+farm loop surfaced four real bugs (all fixed, each with a regression test) plus a new robustness feature. The whole mode-three round now runs end-to-end (buy 22B -> mastery -> points exhausted -> EventLab -> vision farm -> graceful exit) and loops.
