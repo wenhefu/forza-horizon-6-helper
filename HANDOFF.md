@@ -1,5 +1,14 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 V5 phase 2a - focus-guarded + scan-capable navigator
+
+`v5/screen_registry.py`: the generic navigator now respects the game's focus semantics, so it can drive grid screens safely (the keystone of "understands Forza").
+- `plan_route_edges()` returns the `Transition` objects (not just buttons); `plan_route()` still returns raw button strings.
+- `_FOCUS_GUARDS`: an A-press child edge whose trigger names a specific card/option (22B, target event, 开始赛事, 单人, Subaru, ...) only fires when the focused item actually matches (reusing `v4.decision.is_22b` / `is_target_event` / `looks_like_subaru`). Never blind-presses A on the wrong card -- the safety `decide_*` enforces by hand.
+- `_SCAN_DIR`: when the focus does not match, `next_button` returns the grid's scan d-pad (DpadRight / DpadDown) with name `scan_for:<trigger>` to move toward the target, instead of pressing A or just waiting. Raw button form (caller normalizes; `normalize_button("DpadRight")=="dpad_right"`).
+- 158 passed, 22 skipped (+4 guard tests). Still V5-only / opt-in; V4 untouched.
+- Remaining: phase 2b (favorite-filter + scan budgets + full mode-three coverage / parity with `decide_*`); phase 3 (event-driven reactor that removes fixed sleeps + wire the capture engine into a V5 runner/GUI + repackage + in-game validation).
+
 ## 2026-06-01 V5 phase 1 (foundation) - continuous capture engine + screen-registry skeleton
 
 New `v5-foundation` branch. V4 stays the shipped/stable version, untouched. Two additive, OPT-IN pieces; V4 default behavior is byte-for-byte unchanged (the engine is off unless a caller passes one in). This is the shared base for the two "大进化" goals the user asked for: a program that *understands* Forza, and near-zero-latency *continuous monitoring*.

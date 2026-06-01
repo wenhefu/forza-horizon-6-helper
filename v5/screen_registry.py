@@ -27,7 +27,7 @@ from collections import deque
 from dataclasses import dataclass, field
 
 from v3.ui_tree import SCREEN_TO_NODE, UI_NODES
-from v4.decision import normalize_button
+from v4.decision import is_22b, is_target_event, looks_like_subaru, normalize_button
 
 
 # --- data model -----------------------------------------------------------
@@ -260,30 +260,29 @@ REGISTRY = build_registry()
 
 # --- generic navigator ------------------------------------------------------
 
-def _reconstruct(came_from: dict, goal: str) -> list[str]:
-    buttons: list[str] = []
+def _reconstruct_edges(came_from: dict, goal: str) -> list[Transition]:
+    edges: list[Transition] = []
     node = goal
     while came_from.get(node) is not None:
-        prev, button = came_from[node]
-        buttons.append(button)
+        prev, transition = came_from[node]
+        edges.append(transition)
         node = prev
-    buttons.reverse()
-    return buttons
+    edges.reverse()
+    return edges
 
 
-def plan_route(start: str, goal: str, registry: ScreenRegistry | None = None) -> list[str]:
-    """BFS over actionable child/parent/tab edges -> ordered RAW button strings.
+def plan_route_edges(start: str, goal: str, registry: ScreenRegistry | None = None) -> list[Transition]:
+    """BFS over actionable child/parent/tab edges -> ordered Transition list.
 
-    Returns [] if already at goal; raises NoRouteError if unreachable. Callers
-    normalize buttons at press time (slash-pairs like "Back/View" are returned
-    as authored). State-only edges (empty button) are skipped.
+    [] if already at goal; raises NoRouteError if unreachable. State-only edges
+    (empty button, e.g. race_hud -> race_result on finish) are skipped.
     """
     registry = registry or REGISTRY
     if start == goal:
         return []
     if start not in registry.specs:
         raise NoRouteError(start, goal)
-    came_from: dict[str, tuple[str, str] | None] = {start: None}
+    came_from: dict[str, tuple[str, Transition] | None] = {start: None}
     queue = deque([start])
     while queue:
         screen = queue.popleft()
@@ -293,18 +292,67 @@ def plan_route(start: str, goal: str, registry: ScreenRegistry | None = None) ->
             nxt = transition.target
             if nxt not in registry.specs or nxt in came_from:
                 continue
-            came_from[nxt] = (screen, transition.button)
+            came_from[nxt] = (screen, transition)
             if nxt == goal:
-                return _reconstruct(came_from, goal)
+                return _reconstruct_edges(came_from, goal)
             queue.append(nxt)
     raise NoRouteError(start, goal)
+
+
+def plan_route(start: str, goal: str, registry: ScreenRegistry | None = None) -> list[str]:
+    """Like plan_route_edges but returns the raw button strings (for callers/tests)."""
+    return [edge.button for edge in plan_route_edges(start, goal, registry)]
+
+
+def _focus_sel(understanding) -> str:
+    return str(getattr(understanding, "selected_item", "") or "")
+
+
+# Focus guards: an A-press child edge whose trigger names a SPECIFIC card/option
+# must only fire when the focused item actually matches -- never blind-press A on
+# the wrong card. This is the safety the decide_* functions enforce by hand.
+_FOCUS_GUARDS = {
+    ("eventlab_events", "赛事卡片"): lambda u: is_target_event(_focus_sel(u)),
+    ("eventlab_favorites", "收藏赛事卡片"): lambda u: is_target_event(_focus_sel(u)),
+    ("eventlab_my_cars", "22B"): lambda u: is_22b(_focus_sel(u)),
+    ("eventlab_race_type", "单人"): lambda u: "单人" in _focus_sel(u),
+    ("race_menu", "开始赛事"): lambda u: "开始赛事" in _focus_sel(u),
+    ("vehicle_buy_grid", "目标车辆"): lambda u: is_22b(_focus_sel(u)),
+    ("autoshow_showroom", "车辆卡片"): lambda u: is_22b(_focus_sel(u)),
+    ("manufacturer_grid", "品牌"): lambda u: looks_like_subaru(_focus_sel(u)),
+}
+
+# When focus does NOT match a guarded edge, scan the grid toward the target with
+# this d-pad direction (instead of blind-pressing A). The caller's watchdog bounds
+# the scan; phase 2 will add per-screen scan budgets to the navigator itself.
+# Raw button strings (normalize_button maps DpadRight->dpad_right; the caller
+# normalizes at press time, like all other registry transitions).
+_SCAN_DIR = {
+    "eventlab_events": "DpadRight",
+    "eventlab_favorites": "DpadRight",
+    "eventlab_my_cars": "DpadRight",
+    "vehicle_buy_grid": "DpadRight",
+    "autoshow_showroom": "DpadRight",
+    "manufacturer_grid": "DpadDown",
+    "eventlab_race_type": "DpadDown",
+}
+
+
+def _guard_ok(screen: str, transition: Transition, understanding) -> bool:
+    # Only A-press child edges with a registered guard need a focus match; non-A
+    # / structural edges (Y filter, Back/View, Menu, RB tab) act regardless.
+    if transition.kind != "child" or transition.norm_button != "a":
+        return True
+    guard = _FOCUS_GUARDS.get((screen, transition.trigger))
+    return True if guard is None else bool(guard(understanding))
 
 
 def next_button(understanding, goal: str, registry: ScreenRegistry | None = None) -> NextAction:
     """One navigation decision from a recognition result toward `goal`.
 
-    Order: recovery (heal abnormal states) -> arrived -> route step -> wait.
-    This is the generic analog of one `decide_*` call.
+    Order: recovery (heal abnormal states) -> arrived -> focus-guarded route step
+    (scan the grid if the focus is not yet on the target) -> wait. This is the
+    generic, safety-checked analog of one `decide_*` call.
     """
     registry = registry or REGISTRY
     screen = str(getattr(understanding, "screen", "") or "")
@@ -318,10 +366,25 @@ def next_button(understanding, goal: str, registry: ScreenRegistry | None = None
             return NextAction(rec.button, rec.reason, rec.verify, name=f"recovery:{rec.name}",
                               recovery=True, confidence=rec.confidence)
     try:
-        route = plan_route(screen, goal, registry)
+        edges = plan_route_edges(screen, goal, registry)
     except NoRouteError:
         return NextAction("", f"从 {screen!r} 找不到通往 {goal!r} 的路线；等待。", name="wait_no_route")
-    if route:
-        return NextAction(route[0], f"路线 {screen}→{goal} 第一步：{route[0]}。",
-                          verify=f"按后应朝 {goal} 前进一层。", name="route_step")
-    return NextAction("", "已在目标界面。", name="arrived")
+    if not edges:
+        return NextAction("", "已在目标界面。", name="arrived")
+    step = edges[0]
+    if not _guard_ok(screen, step, understanding):
+        scan = _SCAN_DIR.get(screen)
+        if scan:
+            return NextAction(
+                scan,
+                f"焦点不在「{step.trigger}」，按 {scan} 扫描寻找目标(不盲按 A)。",
+                verify=f"焦点变成「{step.trigger}」后再按 {step.button}。",
+                name=f"scan_for:{step.trigger}",
+            )
+        return NextAction(
+            "",
+            f"焦点不在「{step.trigger}」且本页无扫描方向；等待，不盲按 A。",
+            name=f"focus_mismatch:{step.trigger}",
+        )
+    return NextAction(step.button, f"路线 {screen}→{goal} 第一步：{step.button}（{step.trigger or step.kind}）。",
+                      verify=f"按后应朝 {goal} 前进一层。", name="route_step")

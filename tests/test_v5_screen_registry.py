@@ -89,7 +89,11 @@ def test_empty_events_recovery_fires_via_ocr_and_focus():
 
 def test_empty_events_recovery_does_not_fire_on_normal_list():
     act = next_button(fake_u("eventlab_events", selected_item="ANYTHING GOES"), goal="race_menu")
-    assert not act.recovery and act.name == "route_step" and normalize_button(act.button) == "a"
+    # The empty-events recovery must NOT fire on a populated list...
+    assert not act.recovery
+    # ...and since the focus isn't the target event yet, the navigator SCANS for it
+    # (focus guard) rather than blind-pressing A on the wrong card.
+    assert act.name.startswith("scan_for")
 
 
 def test_recovery_takes_precedence_over_routing():
@@ -107,3 +111,36 @@ def test_button_normalization_in_sync_with_v4():
     assert normalize_button("B/Esc") == "b"
     assert normalize_button("Menu") == "start"
     assert normalize_button("") == ""
+
+
+def test_focus_guard_scans_grid_instead_of_blind_a():
+    # eventlab_my_cars -> race_menu first step is A on "22B". If the focus is NOT
+    # 22B, scan (dpad_right) -- never blind-press A on the wrong car.
+    mism = next_button(fake_u("eventlab_my_cars", selected_item="BRZ"), goal="race_menu")
+    assert mism.name == "scan_for:22B" and normalize_button(mism.button) == "dpad_right"
+    matched = next_button(
+        fake_u("eventlab_my_cars", selected_item="IMPREZA 22B-STI VERSION"), goal="race_menu"
+    )
+    assert matched.name == "route_step" and normalize_button(matched.button) == "a"
+
+
+def test_focus_guard_event_card_requires_target_event():
+    mism = next_button(fake_u("eventlab_events", selected_item="机甲爽翻天"), goal="race_menu")
+    assert mism.name.startswith("scan_for") and normalize_button(mism.button) == "dpad_right"
+    matched = next_button(fake_u("eventlab_events", selected_item="SP FARM 10"), goal="race_menu")
+    assert matched.name == "route_step" and normalize_button(matched.button) == "a"
+
+
+def test_focus_guard_manufacturer_requires_subaru():
+    mism = next_button(fake_u("manufacturer_grid", selected_item="HONDA"), goal="vehicle_buy_grid")
+    assert mism.name == "scan_for:品牌" and normalize_button(mism.button) == "dpad_down"
+    matched = next_button(
+        fake_u("manufacturer_grid", selected_item="SUBARU 斯巴鲁"), goal="vehicle_buy_grid"
+    )
+    assert matched.name == "route_step" and normalize_button(matched.button) == "a"
+
+
+def test_non_a_edges_are_not_focus_guarded():
+    # vehicle_buy_grid -> manufacturer_grid is "Back/View" (not A) -> fires freely.
+    act = next_button(fake_u("vehicle_buy_grid", selected_item="anything"), goal="manufacturer_grid")
+    assert act.name == "route_step" and normalize_button(act.button) == "back"
