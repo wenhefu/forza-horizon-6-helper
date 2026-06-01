@@ -46,10 +46,15 @@ class V4Recognizer:
         model_path: str | None = None,
         min_confidence: float = 0.42,
         logger=None,
+        capture_engine=None,
     ):
         self.title = title
         self.min_confidence = float(min_confidence)
         self.logger = logger or logging.getLogger("forza6helper.v4")
+        # Optional v5.capture_engine.CaptureEngine. When set + running + fresh, its
+        # latest frame is used instead of a synchronous grab. None (the default for
+        # every current caller) leaves the V4 capture path byte-for-byte unchanged.
+        self.capture_engine = capture_engine
         self.ocr = OcrReader(logger=self.logger)
         self.analyzer = ForzaSemanticAnalyzer()
         self.detector = YoloOnnxDetector(model_path=model_path or DEFAULT_MODEL)
@@ -60,18 +65,34 @@ class V4Recognizer:
         )
         self.smart_detector = ForzaScreenDetector()
 
-    def capture(self, full_ocr: bool = True, region_ocr: bool = True) -> V4Snapshot:
+    def capture(
+        self, full_ocr: bool = True, region_ocr: bool = True, max_age_ms: float = 250.0
+    ) -> V4Snapshot:
         start = time.perf_counter()
-        hwnd = focus.find_window(self.title)
-        if not hwnd:
-            raise RuntimeError(f"No game window title contains {self.title!r}")
-        title = focus.window_title(hwnd) or self.title
-        try:
-            frame = capture_client_printwindow(hwnd)
-            method = "PrintWindow"
-        except Exception:
-            frame = capture_client(hwnd)
-            method = "BitBlt"
+        frame = None
+        method = ""
+        title = self.title
+        ce = self.capture_engine
+        if ce is not None and ce.is_running():
+            cand, age_ms = ce.get_latest_frame()
+            if cand is not None and age_ms <= max_age_ms:
+                frame, method = cand, "dxcam"  # fast path: continuous-capture frame
+        if frame is None:
+            # Default V4 path -- unchanged when no capture_engine is set, or when
+            # the latest engine frame is stale (page just changed) -> sync re-grab.
+            hwnd = focus.find_window(self.title)
+            if not hwnd:
+                raise RuntimeError(f"No game window title contains {self.title!r}")
+            title = focus.window_title(hwnd) or self.title
+            try:
+                frame = capture_client_printwindow(hwnd)
+                method = "PrintWindow"
+            except Exception:
+                frame = capture_client(hwnd)
+                method = "BitBlt"
+        else:
+            hwnd = focus.find_window(self.title)
+            title = (focus.window_title(hwnd) if hwnd else "") or self.title
 
         items = []
         if full_ocr:

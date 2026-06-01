@@ -1,5 +1,17 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 V5 phase 1 (foundation) - continuous capture engine + screen-registry skeleton
+
+New `v5-foundation` branch. V4 stays the shipped/stable version, untouched. Two additive, OPT-IN pieces; V4 default behavior is byte-for-byte unchanged (the engine is off unless a caller passes one in). This is the shared base for the two "大进化" goals the user asked for: a program that *understands* Forza, and near-zero-latency *continuous monitoring*.
+
+- `v5/capture_engine.py`: a background daemon thread captures the Forza CLIENT region via dxcam (DXGI Desktop Duplication) at a target FPS and exposes the latest `window_capture.Frame` via `get_latest_frame() -> (Frame, age_ms)`. Lazy dxcam import + graceful fallback (engine no-ops if dxcam is missing -> recognizer keeps using GDI). Opt-in integration: `V4Recognizer(capture_engine=...)` uses a fresh (<=250 ms) engine frame, otherwise the existing synchronous PrintWindow/BitBlt path. Helpers `resolve_client_rect` (GetClientRect + ClientToScreen, reusing window_capture's ctypes + DPI awareness) and `bgr_to_frame` (byte-identical to the GDI path).
+  - Live-verified on the 4K dev machine: dxcam loads, captures (frames flowing, 0 errors), and `V4Recognizer.capture()` reports `capture_method="dxcam"`.
+  - OCCLUSION CONSTRAINT (found via a dxcam-vs-PrintWindow diagnostic): dxcam grabs what is VISIBLE on screen, so the game's client area must be unoccluded (consistent with the existing "keep Forza in the foreground" rule). When another window overlaps the game, dxcam returns that window's pixels and the recognizer sees `unknown`; PrintWindow does NOT have this limitation. Phase-3 wiring should treat a dxcam `unknown` as a cue to re-grab synchronously.
+- `v5/screen_registry.py`: a declarative UI model built ON `v3/ui_tree.py` (NOT duplicated) + `v4.decision.normalize_button`. Per-screen `ScreenSpec` with child/parent/tab `Transition`s + `RecoveryAction`s; a generic `plan_route(current, goal)` (BFS) + `next_button(understanding, goal)`. Folds in the user-reported "找不到赛事 / empty events (network glitch)" as the first `RecoveryAction` on `eventlab_events` (wait + retry, escalate to RB; recovery is checked before routing). Tab routing uses a representative `RB` step for now (phase 2 computes the exact LB/RB x N from the active tab via `_tab_button`). `FORMALIZATION_NOTES` documents how each `decide_*` rule maps onto a registry edge/recovery (the phase-2 migration guide).
+- `requirements_vision.txt`: + `dxcam` (optional). The PyInstaller spec is intentionally NOT edited yet -- the engine is not wired into the GUI, so the spec + exe rebuild come with phase-3 wiring.
+- Tests: `tests/test_v5_capture_engine.py` (mock dxcam, fake ctypes via byref._obj, fallback, fresh-vs-stale handoff) + `tests/test_v5_screen_registry.py` (registry covers all SCREEN_TO_NODE, BFS routes incl. multi-hop/back/unreachable, empty-events recovery fires/not/precedence). 154 passed, 22 skipped (was 133 + 21 new).
+- Non-goals (later phases): migrate the full `decide_*` logic onto the registry (phase 2); event-driven loop that removes the fixed sleeps + wire the engine into the GUI/runner + repackage (phase 3).
+
 ## 2026-06-01 hotfix 27 - debounce handoff/arrival + free-roam guard + 1080p default
 
 Multi-round live testing surfaced two more misread-driven bugs (both confirmed from `dist\reports\v4_mode3_latest.json`, the exe writes there since its CWD is dist):

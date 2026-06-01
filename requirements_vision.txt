@@ -4,3 +4,4 @@ opencv-python
 PyYAML
 onnx
 ultralytics
+dxcam            # v5 continuous capture engine (optional; engine falls back to GDI if absent)
