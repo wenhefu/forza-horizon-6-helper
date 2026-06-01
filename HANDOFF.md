@@ -1,5 +1,11 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 V5 phase 3b - runnable event-driven navigation (live-test ready)
+
+`v5/nav_runner.py` (`V5Navigator`) + `v5_nav_launcher.py`: wires the three V5 engines into a runnable navigation. recognize = `V4Recognizer(capture_engine=CaptureEngine)` (continuous dxcam frames, `full_ocr=False`+region OCR for speed) with an OCCLUSION FALLBACK (dxcam `unknown` -> synchronous PrintWindow re-grab via `max_age_ms=0`); decide = `screen_registry.next_button(u, goal)`; press = `Gamepad.tap`; driven by `EventReactor` (no fixed settle sleeps). Requires the game foreground (sentinel `background` screen -> wait, never fake-focus), never auto-presses. `tests/test_v5_nav_runner.py` mocks recognizer/pad/focus. 171 passed, 22 skipped.
+- **LIVE TEST (user; keep Forza foreground on a menu / free-roam page):** `python v5_nav_launcher.py` (optional `--goal race_menu` / `--no-engine` / `--allow-background`). It navigates the current screen to the goal with the event-driven reactor and prints each step + timing + the dxcam-fallback count. First felt-latency validation; navigation only (buy/farm stay on V4).
+- Phase 3b finish (after nav is confirmed fast+stable in-game): extend to the full mode-three (buy + farm via the reactor) and/or a GUI toggle + repackage; plus phase 2b parity polish (favorite-filter, scan budgets).
+
 ## 2026-06-01 V5 phase 3a - event-driven reactor core
 
 `v5/reactor.py` (`EventReactor`): replaces V4's "press -> fixed sleep (0.85-1.15s) -> recognize" cadence with "press -> WATCH the frame stream -> react the instant the state changes (or a per-step timeout)". This is the felt-latency engine. Generic + fully injectable (recognize / decide / press / clock), so it works with either `v5.screen_registry.next_button` or the proven `v4.decision.decide_*` (both expose `.button`/`.name`/optional `.terminal`), and is unit-testable without a game. Handles: wait decisions (empty button), no-progress stall, step-timeout re-press, stop-event, max-seconds. `tests/test_v5_reactor.py` uses a fake clock + fake game (deterministic, no real time) and asserts it never sleeps longer than the poll interval (no fixed settle). 165 passed, 22 skipped.
