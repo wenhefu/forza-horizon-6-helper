@@ -1,5 +1,17 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 V5 phase 3b LIVE-VALIDATED - event-driven nav reaches the race menu
+
+Drove the V5 navigation live (game foreground via `--auto-focus`). It navigates the ENTIRE EventLab flow end-to-end and reaches the start-race menu (`reason=goal`): controller-reconnect -> pause -> creative hub -> EventLab -> target event (SP Farm = 10 skill points) -> race type -> my-cars -> favorite-filter -> select 22B -> start-race menu -> arrived. Fixes found + applied while driving (`v5/nav_runner.py`):
+- Drive the reactor with the PROVEN `decide_mode3_navigation` + a persistent `RouteContext`. The generic registry BFS (`next_button`) picked focus-agnostic A-edges and invalid synthesized-parent shortcuts -> wrong presses (e.g. pressing A on 收集簿). The registry stays for the recovery/knowledge layer only.
+- `--auto-focus` = a normal foreground switch (like V4; NOT fake-focus) so the nav can bring Forza forward itself.
+- Unknown-screen back-out (B, bounded to 6) to escape coverage gaps (e.g. `festival_playlist`) instead of stalling.
+- Arrival by FOCUS: a focused 开始赛事/开始竞赛赛事 tile = arrived (the start menu sometimes reads as `pause_story`, not `race_menu`) -- via `_is_start_race_focus`.
+- `V4Recognizer.capture(skip_smart=True)` (opt-in, default off so V4 is unchanged) drops the unused V1 pixel-loop detector. full_ocr stays TRUE: `full_ocr=False` misreads the favorite-filter page as `idle_showcase` and the filter step loops forever.
+- **KEY FINDING (next focus): recognition is the latency bottleneck** -- avg ~1.1-2.2s/frame (RapidOCR at this 1920x1080-class resolution; dxcam occlusion double-captures add more). The event-driven reactor removes the fixed settle sleeps, but "felt instant" needs a recognition-SPEED optimization (downscale-for-OCR / OCR-on-demand / GPU) -- a separate focused task. dxcam works when Forza is unoccluded; `--no-engine` (synchronous capture) is cleaner while OCR dominates the cost.
+
+173 passed, 22 skipped. V4 + the shipped exe untouched (all on `v5-foundation`, opt-in).
+
 ## 2026-06-01 V5 phase 3b - runnable event-driven navigation (live-test ready)
 
 `v5/nav_runner.py` (`V5Navigator`) + `v5_nav_launcher.py`: wires the three V5 engines into a runnable navigation. recognize = `V4Recognizer(capture_engine=CaptureEngine)` (continuous dxcam frames, `full_ocr=False`+region OCR for speed) with an OCCLUSION FALLBACK (dxcam `unknown` -> synchronous PrintWindow re-grab via `max_age_ms=0`); decide = `screen_registry.next_button(u, goal)`; press = `Gamepad.tap`; driven by `EventReactor` (no fixed settle sleeps). Requires the game foreground (sentinel `background` screen -> wait, never fake-focus), never auto-presses. `tests/test_v5_nav_runner.py` mocks recognizer/pad/focus. 171 passed, 22 skipped.

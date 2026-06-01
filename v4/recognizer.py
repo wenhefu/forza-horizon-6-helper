@@ -66,7 +66,8 @@ class V4Recognizer:
         self.smart_detector = ForzaScreenDetector()
 
     def capture(
-        self, full_ocr: bool = True, region_ocr: bool = True, max_age_ms: float = 250.0
+        self, full_ocr: bool = True, region_ocr: bool = True, max_age_ms: float = 250.0,
+        skip_smart: bool = False,
     ) -> V4Snapshot:
         start = time.perf_counter()
         frame = None
@@ -104,7 +105,10 @@ class V4Recognizer:
             run_region_ocr=region_ocr,
             min_confidence=self.min_confidence,
         )
-        smart = self.smart_detector.detect(frame)
+        # The V1 smart detector is a slow pixel-loop; skip it when the caller does
+        # not use smart_state (e.g. the V5 nav uses decide_mode3_navigation, which
+        # reads only v3). Default keeps V4 behavior.
+        smart = None if skip_smart else self.smart_detector.detect(frame)
         elapsed = (time.perf_counter() - start) * 1000.0
         return V4Snapshot(
             frame=frame,
@@ -112,8 +116,8 @@ class V4Recognizer:
             capture_method=method,
             ocr_items=items,
             v3=v3,
-            smart_state=getattr(smart, "state", ""),
-            smart_confidence=float(getattr(smart, "confidence", 0.0) or 0.0),
+            smart_state=getattr(smart, "state", "") if smart is not None else "",
+            smart_confidence=float(getattr(smart, "confidence", 0.0) or 0.0) if smart is not None else 0.0,
             elapsed_ms=elapsed,
         )
 

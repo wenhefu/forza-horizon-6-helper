@@ -32,7 +32,7 @@ class FakeRecognizer:
     def __init__(self, route):
         self.route = route
 
-    def capture(self, full_ocr=True, region_ocr=True, max_age_ms=250.0):
+    def capture(self, full_ocr=True, region_ocr=True, max_age_ms=250.0, **kwargs):
         return SimpleNamespace(capture_method="sync", v3=self.route.current())
 
 
@@ -55,7 +55,7 @@ def test_recognize_occlusion_fallback_on_dxcam_unknown(monkeypatch):
     calls = []
 
     class Rec:
-        def capture(self, full_ocr=True, region_ocr=True, max_age_ms=250.0):
+        def capture(self, full_ocr=True, region_ocr=True, max_age_ms=250.0, **kwargs):
             calls.append(max_age_ms)
             if max_age_ms != 0.0:  # engine path returns an occluded -> unknown frame
                 return SimpleNamespace(capture_method="dxcam", v3=_u("unknown"))
@@ -72,7 +72,7 @@ def test_recognize_no_fallback_when_dxcam_reads_a_real_screen(monkeypatch):
     monkeypatch.setattr(focus, "is_foreground", lambda title="Forza": True)
 
     class Rec:
-        def capture(self, full_ocr=True, region_ocr=True, max_age_ms=250.0):
+        def capture(self, full_ocr=True, region_ocr=True, max_age_ms=250.0, **kwargs):
             return SimpleNamespace(capture_method="dxcam", v3=_u("eventlab_events"))
 
     nav = V5Navigator(recognizer=Rec(), use_capture_engine=False)
@@ -94,10 +94,22 @@ def test_recognize_returns_background_when_not_foreground(monkeypatch):
     assert captured == []  # never captured while backgrounded
 
 
-def test_decide_delegates_to_registry_next_button():
-    nav = V5Navigator(goal="eventlab_events", recognizer=object(), use_capture_engine=False)
-    act = nav.decide(_u("eventlab_home"))
-    assert act.name == "route_step" and normalize_button(act.button) == "a"
+def test_decide_uses_injected_route_decider():
+    nav = V5Navigator(
+        decide_fn=lambda u: SimpleNamespace(button="X", name="custom"),
+        recognizer=object(), use_capture_engine=False,
+    )
+    act = nav.decide(_u("anything"))
+    assert act.name == "custom" and act.button == "X"
+
+
+def test_decide_backs_out_of_unknown_screen():
+    nav = V5Navigator(
+        decide_fn=lambda u: SimpleNamespace(button="", name="wait_unknown"),
+        recognizer=object(), use_capture_engine=False,
+    )
+    act = nav.decide(_u("festival_playlist"))
+    assert act.name == "recover_backout" and normalize_button(act.button) == "b"
 
 
 def test_press_taps_pad_and_ignores_unknown_button():
@@ -108,13 +120,36 @@ def test_press_taps_pad_and_ignores_unknown_button():
     assert pad.taps == ["a"]
 
 
+def _step_decide(goal):
+    def decide(u):
+        if u.screen == goal:
+            return SimpleNamespace(button="", name="arrived", terminal=True)
+        return SimpleNamespace(button="A", name="step", terminal=False)
+
+    return decide
+
+
 def test_run_navigates_to_goal_with_fakes():
-    route = Route(["eventlab_home", "eventlab_events"])
+    route = Route(["s0", "GOAL"])
     pad = FakePad(route)
     nav = V5Navigator(
-        goal="eventlab_events", require_foreground=False, use_capture_engine=False,
-        recognizer=FakeRecognizer(route), pad=pad, engine=None, max_seconds=10.0,
+        goal="GOAL", require_foreground=False, use_capture_engine=False,
+        recognizer=FakeRecognizer(route), pad=pad, engine=None,
+        decide_fn=_step_decide("GOAL"), max_seconds=10.0,
     )
     result = nav.run()
     assert result.reason == "goal"
-    assert pad.taps == ["a"] and result.last_screen == "eventlab_events"
+    assert pad.taps == ["a"] and result.last_screen == "GOAL"
+
+
+def test_run_auto_focus_activates_window(monkeypatch):
+    activated = []
+    monkeypatch.setattr(focus, "activate_window", lambda title, **kwargs: activated.append(title))
+    route = Route(["s0", "GOAL"])
+    nav = V5Navigator(
+        goal="GOAL", require_foreground=False, auto_focus=True, use_capture_engine=False,
+        recognizer=FakeRecognizer(route), pad=FakePad(route), engine=None,
+        decide_fn=_step_decide("GOAL"), max_seconds=10.0,
+    )
+    assert nav.run().reason == "goal"
+    assert activated == ["Forza"]  # brought the game forward at start
