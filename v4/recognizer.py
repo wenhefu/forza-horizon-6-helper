@@ -67,7 +67,7 @@ class V4Recognizer:
 
     def capture(
         self, full_ocr: bool = True, region_ocr: bool = True, max_age_ms: float = 250.0,
-        skip_smart: bool = False,
+        skip_smart: bool = False, downscale_width: int | None = None,
     ) -> V4Snapshot:
         start = time.perf_counter()
         frame = None
@@ -94,6 +94,15 @@ class V4Recognizer:
         else:
             hwnd = focus.find_window(self.title)
             title = (focus.window_title(hwnd) if hwnd else "") or self.title
+
+        # Optional downscale BEFORE OCR -- OCR cost scales with pixel count, and the
+        # V2/focus logic is normalized so it is resolution-independent. Big speed-up
+        # for the V5 nav. Default None keeps V4 behavior (full resolution).
+        if downscale_width and getattr(frame, "width", 0) > int(downscale_width):
+            from v3.frame_utils import resize_frame
+
+            frame = resize_frame(frame, max_width=int(downscale_width))
+            method = f"{method}+ds{int(downscale_width)}"
 
         items = []
         if full_ocr:

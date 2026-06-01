@@ -1,5 +1,9 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 V5 phase 3b - recognition speed-up: downscale-for-OCR
+
+Measured the per-stage recognition cost live (throwaway `_meas_v5`): OCR dominates -- full-frame OCR 842ms, the region-OCR inside `analyze` ~554ms; YOLO ~67ms; PrintWindow grab ~39ms. RapidOCR has a sharp threshold near 960px: full(1920)=842ms, 1280=670ms, but **960=239ms (3.5x)** -- which is why an earlier 1280 try barely helped (only 8%). So `V4Recognizer.capture(downscale_width=...)` (opt-in; default None = V4 unchanged) resizes the frame BEFORE OCR (the V2/focus logic is normalized, so it is resolution-independent). The V5 nav defaults to `downscale_width=960` (`--downscale`, 0=off): live recognition dropped **1119ms -> 704ms (~37%)** and it still reads 开始竞赛赛事 correctly (arrives). 640 doesn't speed OCR further but risks text accuracy, so 960 is the floor here. Truly "instant" (~100ms) would need GPU OCR or template-matching known screens (a bigger, separate effort). 173 passed, 22 skipped.
+
 ## 2026-06-01 V5 phase 3b LIVE-VALIDATED - event-driven nav reaches the race menu
 
 Drove the V5 navigation live (game foreground via `--auto-focus`). It navigates the ENTIRE EventLab flow end-to-end and reaches the start-race menu (`reason=goal`): controller-reconnect -> pause -> creative hub -> EventLab -> target event (SP Farm = 10 skill points) -> race type -> my-cars -> favorite-filter -> select 22B -> start-race menu -> arrived. Fixes found + applied while driving (`v5/nav_runner.py`):

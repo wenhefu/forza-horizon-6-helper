@@ -47,6 +47,7 @@ class V5Navigator:
         require_foreground: bool = True,
         auto_focus: bool = False,
         use_capture_engine: bool = True,
+        downscale_width: int | None = 960,  # OCR drops ~3.5x at <=960 vs full; text still reads
         step_timeout: float = 2.5,
         stall_seconds: float = 30.0,
         max_seconds: float = 600.0,
@@ -61,6 +62,7 @@ class V5Navigator:
         self.logger = logger or logging.getLogger("forza6helper.v5.nav")
         self.require_foreground = require_foreground
         self.auto_focus = auto_focus
+        self.downscale_width = downscale_width
         self.step_timeout = step_timeout
         self.stall_seconds = stall_seconds
         self.max_seconds = max_seconds
@@ -98,12 +100,17 @@ class V5Navigator:
         # misreads the filter page as idle_showcase and the filter step loops). Slower
         # but correct -- recognition-speed optimization (downscale-for-OCR) is a
         # separate focused task. skip_smart drops the unused V1 pixel-loop detector.
-        snap = self.recognizer.capture(full_ocr=True, region_ocr=True, skip_smart=True)
+        snap = self.recognizer.capture(
+            full_ocr=True, region_ocr=True, skip_smart=True, downscale_width=self.downscale_width
+        )
         if getattr(snap, "capture_method", "") == "dxcam" and str(snap.v3.screen) == "unknown":
             # dxcam captures on-screen pixels; an overlapping window reads as unknown.
             # Re-grab synchronously (PrintWindow renders the window's own content).
             self.fallbacks += 1
-            snap = self.recognizer.capture(full_ocr=True, region_ocr=True, max_age_ms=0.0, skip_smart=True)
+            snap = self.recognizer.capture(
+                full_ocr=True, region_ocr=True, max_age_ms=0.0, skip_smart=True,
+                downscale_width=self.downscale_width,
+            )
         self._cap_ms_sum += float(getattr(snap, "elapsed_ms", 0.0) or 0.0)
         self._cap_n += 1
         return snap.v3

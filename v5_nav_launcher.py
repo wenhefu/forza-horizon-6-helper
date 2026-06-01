@@ -23,6 +23,7 @@ def main(argv=None) -> int:
     parser.add_argument("--no-engine", action="store_true", help="disable dxcam continuous capture")
     parser.add_argument("--allow-background", action="store_true", help="do not require the game foreground")
     parser.add_argument("--auto-focus", action="store_true", help="bring Forza to the foreground first (normal switch)")
+    parser.add_argument("--downscale", type=int, default=960, help="downscale width before OCR (0 = off / full res)")
     parser.add_argument("--max-seconds", type=float, default=600.0)
     args = parser.parse_args(argv)
 
@@ -34,6 +35,7 @@ def main(argv=None) -> int:
         require_foreground=not args.allow_background,
         auto_focus=args.auto_focus,
         use_capture_engine=not args.no_engine,
+        downscale_width=(args.downscale or None),
         max_seconds=args.max_seconds,
     )
     nav.run()
