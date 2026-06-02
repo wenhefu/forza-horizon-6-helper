@@ -52,6 +52,8 @@ class SellDuplicatesRunner:
         self._filter_on = False
 
     def _look(self):
+        # full-res OCR: downscaling mis-read the 选择操作 menu rows (从车库移除 was missed),
+        # which is unacceptable on a destructive flow. Reliability over the ~30% speed.
         snap = self.recognizer.capture(full_ocr=True, region_ocr=True)
         u = snap.v3
         ocr = " | ".join(str(getattr(it, "text", "")) for it in snap.ocr_items)
@@ -95,10 +97,26 @@ class SellDuplicatesRunner:
             self._tap("dpad_right", after=0.4)
         return names
 
+    def _ensure_my_vehicles(self, attempts=8):
+        """Navigate to the My Vehicles grid from a pause-menu state (RB to the 车辆 tab ->
+        更换车辆 -> A). Returns True if reached. Safe: only menu navigation."""
+        for _ in range(attempts):
+            screen, _, _ = self._look()
+            if screen == "eventlab_my_cars":
+                return True
+            if screen == "pause_vehicle_entry":
+                self._tap("dpad_up", after=0.4)
+                self._tap("dpad_up", after=0.4)   # reach 更换车辆 (top tile)
+                self._tap("a", after=1.3)          # open My Vehicles grid
+            elif screen.startswith("pause"):
+                self._tap("rb", after=1.0)         # cycle tabs toward 车辆
+            else:
+                self._tap("b", after=0.9)          # back toward a menu
+        return self._look()[0] == "eventlab_my_cars"
+
     def run(self):
-        screen, _, _ = self._look()
-        if screen != "eventlab_my_cars":
-            self.on_log(f"卖重复车：当前不在“我的车辆”网格（screen={screen}）。请先打开 车辆→更换车辆。")
+        if not self._ensure_my_vehicles():
+            self.on_log("卖重复车：没能进入“我的车辆”网格。请先打开 车辆→更换车辆。")
             return None
 
         if not self._toggle_duplicates_filter():
@@ -150,16 +168,16 @@ class SellDuplicatesRunner:
             reason = "收藏" if menu["favorited"] else ("在驾驶/无移除项" if not menu["has_remove"] else "未知")
             self._tap("b", after=0.6)  # cancel; card untouched
             return f"skip_protected({reason})"
-        # Navigate to 从车库移除车辆 by READING the focused option each step (selected_item
-        # reports the focused menu row), so an absorbed first input just costs one more loop
-        # -- robust where a blind DpadDown ×4 mis-landed.
+        # Navigate to 从车库移除车辆 by READING the focused row each step (proven: sold 200
+        # with 0 aborts). selected_item reports the focused menu option, so an absorbed input
+        # just costs one more loop.
         on_remove = False
         for _ in range(8):
             _, sel, _ = self._look()
             if "从车库移除" in sel:
                 on_remove = True
                 break
-            self._tap("dpad_down", after=0.35)
+            self._tap("dpad_down", after=0.3)
         if not on_remove:
             self.on_log("    ⚠ 菜单里没定位到“从车库移除车辆”，退出。")
             self._tap("b", after=0.6)
@@ -167,12 +185,12 @@ class SellDuplicatesRunner:
         self._tap("a", after=0.8)
         # Poll for the remove-confirm dialog (it can take a moment to render).
         confirmed = False
-        for _ in range(5):
+        for _ in range(4):
             _, _, ocr2 = self._look()
             if detect_remove_confirm(ocr2)["visible"]:
                 confirmed = True
                 break
-            self._sleep(0.3)
+            self._sleep(0.25)
         if not confirmed:
             self.on_log("    ⚠ 没确认到“从车库移除”对话框，放弃这一辆，退出菜单。")
             self._tap("b", after=0.6)
@@ -186,9 +204,8 @@ class SellDuplicatesRunner:
         """Remove up to max_sell duplicate cars. If target_name is given, only cars whose
         focused name contains it are touched (e.g. "22B"), so other duplicated models are
         left alone. Favorited / currently-driving cars are always skipped."""
-        screen, _, _ = self._look()
-        if screen != "eventlab_my_cars":
-            self.on_log(f"卖重复车[真删]：当前不在“我的车辆”网格（screen={screen}）。请先打开 车辆→更换车辆。")
+        if not self._ensure_my_vehicles():
+            self.on_log("卖重复车[真删]：没能进入“我的车辆”网格。请先打开 车辆→更换车辆。")
             return 0
         if not self._toggle_duplicates_filter():
             return 0
@@ -212,7 +229,7 @@ class SellDuplicatesRunner:
             if result == "sold":
                 sold += 1
                 idle = 0
-                self._sleep(1.0)  # grid re-renders; focus shifts to the next card
+                self._sleep(0.7)  # grid re-renders; focus shifts to the next card
             elif result.startswith("skip_protected"):
                 self._tap("dpad_right", after=0.5)  # next card, try again
                 idle += 1
