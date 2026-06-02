@@ -18,10 +18,13 @@ from v4.sell_runner import SellDuplicatesRunner
 
 
 def main(argv=None) -> int:
-    parser = argparse.ArgumentParser(description="Duplicate-car dry-run scan (read-only).")
+    parser = argparse.ArgumentParser(description="Duplicate-car scan / sell.")
     parser.add_argument("--title", default=getattr(config, "GAME_TITLE", "Forza"))
     parser.add_argument("--auto-focus", action="store_true", help="bring Forza to the foreground first")
     parser.add_argument("--keep", type=int, default=1, help="copies to keep per model (report only)")
+    parser.add_argument("--sell", action="store_true", help="ACTUALLY remove duplicates (destructive)")
+    parser.add_argument("--max", type=int, default=1, help="with --sell: max cars to remove this run")
+    parser.add_argument("--model", default=None, help="with --sell: only remove cars whose name contains this (e.g. 22B)")
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
@@ -42,7 +45,15 @@ def main(argv=None) -> int:
         time.sleep(1.0)
 
     try:
-        SellDuplicatesRunner(recognizer, pad, dry_run=True, keep_per_model=args.keep, on_log=print).run()
+        runner = SellDuplicatesRunner(
+            recognizer, pad, dry_run=not args.sell, keep_per_model=args.keep, on_log=print
+        )
+        if args.sell:
+            scope = f"，只卖含“{args.model}”的车" if args.model else ""
+            print(f"=== 真删模式：最多删 {args.max} 辆{scope}（跳过收藏/正在驾驶的，删前核对确认框）===")
+            runner.run_sell(max_sell=args.max, target_name=args.model)
+        else:
+            runner.run()
     finally:
         pad.neutral()
     return 0

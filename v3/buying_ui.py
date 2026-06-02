@@ -348,6 +348,18 @@ def detect_vehicle_action_menu(ocr_text: str) -> dict:
     }
 
 
+def detect_remove_confirm(ocr_text: str) -> dict:
+    """Recognize the '从车库移除车辆' confirm dialog (user-confirmed screenshot).
+
+    OCR: '从车库移除车辆 | 确定要移除所选车辆吗？ | 不 | 嗯'. Default focus is 不 (No);
+    to confirm, DpadDown -> 嗯 -> A. The runner MUST see this exact dialog before pressing
+    嗯, so a mis-navigated menu (e.g. landing on 举报并移除涂装) can never confirm a removal.
+    """
+    text = ocr_text or ""
+    visible = "从车库移除" in text and ("确定要移除" in text or "移除所选车辆" in text)
+    return {"visible": visible}
+
+
 def _ocr_text_inside_bbox(items, bbox) -> str:
     x1, y1, x2, y2 = clamp_bbox(bbox)
     parts = []

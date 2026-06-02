@@ -1,16 +1,21 @@
-"""Duplicate-car scanner/seller — READ-ONLY dry-run by default.
+"""Duplicate-car scanner/seller via the game-native 重复项 (Duplicates) filter.
 
-Phase B of the super-assistant. Uses the game-native 重复项 (Duplicates) filter so it
-never scans the whole garage: enable the filter, sweep the (small) duplicate set with
-DpadRight reading each focused car name, and report the duplicated models via the vetted
-v4.sell_planner. Selling is GATED behind dry_run=False and is not implemented here yet --
-it is destructive and needs the per-card 当前车辆/收藏 read + a sell-and-observe loop
-(see docs/SUPER_ASSISTANT.md). The dry-run is read-only, so it is safe to run/iterate.
+Phase B of the super-assistant. `run()` is a READ-ONLY dry-run (enable 重复项, sweep,
+report). `run_sell(max_sell)` actually removes duplicates, with layered safety so the
+farm 22B is never touched:
+  1. Only cars whose 选择操作 menu offers 从车库移除车辆 AND are not favorited are sellable
+     (`detect_vehicle_action_menu().sellable`). The currently-DRIVING car has no remove
+     option (game-native), and favorited cars are skipped.
+  2. After navigating to 从车库移除车辆 and pressing A, it VERIFIES the
+     '从车库移除车辆 / 确定要移除' confirm dialog before pressing 嗯 -- a mis-navigated menu
+     can never confirm a deletion.
+  3. max_sell caps how many are removed per run.
 """
 import time
 from collections import Counter
 
 from gamepad import BUTTON_NAMES
+from v3.buying_ui import detect_remove_confirm, detect_vehicle_action_menu
 from v4.sell_planner import VehicleCard, summarize_plan
 
 
@@ -125,3 +130,80 @@ class SellDuplicatesRunner:
                 self.on_log("卖重复车：已关闭“重复项”筛选，恢复原状。")
 
         return {"swept": len(names), "models": models}
+
+    # ----- actual removal (DESTRUCTIVE, layered-safe) -------------------------
+
+    def _menu_state(self):
+        """Open the focused card's 选择操作 menu and read its state."""
+        self._tap("a", after=1.0)
+        _, _, ocr = self._look()
+        return detect_vehicle_action_menu(ocr)
+
+    def sell_focused_card(self):
+        """Try to remove the focused card. NEVER removes a favorited or currently-driving
+        car, and verifies the 从车库移除 confirm dialog before pressing 嗯."""
+        menu = self._menu_state()
+        if not menu["visible"]:
+            self._tap("b", after=0.6)
+            return "no_menu"
+        if not menu["sellable"]:
+            reason = "收藏" if menu["favorited"] else ("在驾驶/无移除项" if not menu["has_remove"] else "未知")
+            self._tap("b", after=0.6)  # cancel; card untouched
+            return f"skip_protected({reason})"
+        # sellable normal-car menu order: 上车 / 添加至收藏 / 查看车辆 / 查看历史记录 /
+        # 从车库移除车辆 / 举报并移除涂装. Opens on 上车 -> DpadDown ×4 -> 从车库移除车辆.
+        for _ in range(4):
+            self._tap("dpad_down", after=0.3)
+        self._tap("a", after=1.1)
+        _, _, ocr2 = self._look()
+        if not detect_remove_confirm(ocr2)["visible"]:
+            self.on_log("    ⚠ 没确认到“从车库移除”对话框，放弃这一辆，退出菜单。")
+            self._tap("b", after=0.5)
+            self._tap("b", after=0.5)
+            return "abort_no_confirm"
+        # confirm dialog defaults to 不(No): DpadDown -> 嗯(Yes) -> A
+        self._tap("dpad_down", after=0.4)
+        self._tap("a", after=1.3)
+        return "sold"
+
+    def run_sell(self, max_sell=1, target_name=None):
+        """Remove up to max_sell duplicate cars. If target_name is given, only cars whose
+        focused name contains it are touched (e.g. "22B"), so other duplicated models are
+        left alone. Favorited / currently-driving cars are always skipped."""
+        screen, _, _ = self._look()
+        if screen != "eventlab_my_cars":
+            self.on_log(f"卖重复车[真删]：当前不在“我的车辆”网格（screen={screen}）。请先打开 车辆→更换车辆。")
+            return 0
+        if not self._toggle_duplicates_filter():
+            return 0
+        self._filter_on = True
+        scope = f"，只卖含“{target_name}”的车" if target_name else "（所有重复车型）"
+        self.on_log(f"卖重复车[真删]：已开“重复项”，最多删 {max_sell} 辆{scope}（跳过收藏/正在驾驶的）。")
+        sold, attempts, idle = 0, 0, 0
+        while sold < max_sell and idle < 8:
+            attempts += 1
+            screen, name, _ = self._look()
+            if screen != "eventlab_my_cars":
+                self.on_log("  网格已变（可能该车型重复清空），停止。")
+                break
+            if target_name and target_name not in name:
+                self.on_log(f"  跳过(非目标车型: {name})")
+                self._tap("dpad_right", after=0.5)
+                idle += 1
+                continue
+            result = self.sell_focused_card()
+            self.on_log(f"  第{attempts}次({name})：{result}")
+            if result == "sold":
+                sold += 1
+                idle = 0
+                self._sleep(1.0)  # grid re-renders; focus shifts to the next card
+            elif result.startswith("skip_protected"):
+                self._tap("dpad_right", after=0.5)  # next card, try again
+                idle += 1
+            else:
+                break  # no_menu / abort -> stop, stay safe
+        self.on_log(f"卖重复车[真删]：本次共删 {sold} 辆。")
+        if self._filter_on and self._toggle_duplicates_filter():
+            self._filter_on = False
+            self.on_log("卖重复车：已关闭“重复项”，恢复原状。")
+        return sold

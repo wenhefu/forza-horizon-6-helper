@@ -1,7 +1,18 @@
 """Tests for the sell-duplicates planner + the 选择操作 action-menu detector."""
-from v3.buying_ui import detect_vehicle_action_menu
+from v3.buying_ui import detect_remove_confirm, detect_vehicle_action_menu
 from v4.sell_planner import VehicleCard, plan_duplicate_sales, summarize_plan
 from v4.sell_runner import distinct_models
+
+
+def test_remove_confirm_dialog_detected():
+    ocr = "从车库移除车辆 | 确定要移除所选车辆吗？ | 不 | 嗯"
+    assert detect_remove_confirm(ocr)["visible"] is True
+
+
+def test_remove_confirm_not_detected_on_action_menu_or_blank():
+    # the action menu is NOT the confirm dialog -> must not be mistaken for it
+    assert detect_remove_confirm("选择操作 | 上车 | 从车库移除车辆 | 取消")["visible"] is False
+    assert detect_remove_confirm("")["visible"] is False
 
 
 def test_distinct_models_dedupes_preserving_order():
