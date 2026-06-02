@@ -360,6 +360,47 @@ def detect_remove_confirm(ocr_text: str) -> dict:
     return {"visible": visible}
 
 
+# --- Auction house (Phase C) -------------------------------------------------
+# The screen classifier mislabels these (autoshow_buy_sell / unknown), so the snipe
+# runner uses these standalone OCR detectors instead. Strings captured live (zh-Hans).
+
+def detect_auction_search(ocr_text: str) -> dict:
+    """The 搜寻 search-config screen: 车厂/型号/性能等级/车辆类型/最高竞价/最高买断价/确认.
+    '最高买断价' is the distinctive field (the snipe's price cap)."""
+    text = ocr_text or ""
+    visible = "搜寻" in text and ("买断价" in text or "最高竞价" in text)
+    return {"visible": visible, "has_buyout_cap": "买断价" in text}
+
+
+def detect_auction_results(ocr_text: str) -> dict:
+    """The 拍卖详情 results screen (after 确认). '拍卖详情' is distinctive; 拍卖选项 is the
+    per-listing Y menu (where Buy Out lives)."""
+    text = ocr_text or ""
+    visible = "拍卖详情" in text
+    return {"visible": visible, "has_options": "拍卖选项" in text}
+
+
+def detect_auction_house(ocr_text: str) -> dict:
+    """The 拍卖场 landing menu: 搜索拍卖 / 开始拍卖 / 我的竞价 / 我的拍卖 / 拍卖提醒.
+    Distinguished from results (拍卖详情) and search (搜寻)."""
+    text = ocr_text or ""
+    if "拍卖详情" in text or "搜寻" in text:
+        return {"visible": False}
+    visible = "拍卖场" in text and ("搜索拍卖" in text or "开始拍卖" in text)
+    return {"visible": visible}
+
+
+def detect_buyout_confirm(ocr_text: str) -> dict:
+    """The 买断 (Buy Out) confirm popup, and its outcomes. Verified before pressing Yes so
+    a mis-navigated menu can never confirm a purchase. (Outcome strings to refine live.)"""
+    text = ocr_text or ""
+    return {
+        "visible": "买断" in text and ("确定" in text or "确认" in text or "是否" in text),
+        "succeeded": "成交" in text or "购买成功" in text,
+        "failed": "失败" in text or "已售出" in text or "出价更高" in text,
+    }
+
+
 def _ocr_text_inside_bbox(items, bbox) -> str:
     x1, y1, x2, y2 = clamp_bbox(bbox)
     parts = []
