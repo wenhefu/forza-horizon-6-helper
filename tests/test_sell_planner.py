@@ -1,6 +1,14 @@
 """Tests for the sell-duplicates planner + the 选择操作 action-menu detector."""
 from v3.buying_ui import detect_vehicle_action_menu
 from v4.sell_planner import VehicleCard, plan_duplicate_sales, summarize_plan
+from v4.sell_runner import distinct_models
+
+
+def test_distinct_models_dedupes_preserving_order():
+    # dup copies share names; the reliable signal is the distinct SET of models
+    assert distinct_models(["22B", "M5", "22B", "22B", "WRANGLER", "M5"]) == ["22B", "M5", "WRANGLER"]
+    assert distinct_models(["", "  ", "X", None]) == ["X"]
+    assert distinct_models([]) == []
 
 
 # --- detect_vehicle_action_menu ------------------------------------------------

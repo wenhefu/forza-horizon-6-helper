@@ -79,7 +79,13 @@ us**. `detect_eventlab_filter_state` reads the focus; 重复项 is the 3rd row (
   copies are ever proposed. 10 tests (incl. the never-sell invariants).
 - [x] **Discovery:** the native **重复项 (Duplicates) filter** (above) — enable it and the
   grid shows ONLY duplicates, so no 648-car scan. Live-confirmed toggling on/off.
-- [ ] **Next:** SellDuplicatesRunner (dry-run-first, destructive):
+- [x] **Read-only DRY-RUN scanner BUILT + live-validated** (`v4/sell_runner.py`
+  `SellDuplicatesRunner` + `sell_launcher.py`): enables 重复项, sweeps with DpadRight
+  reading focused names, reports the duplicated models + counts, then restores the filter.
+  Live result: the garage holds a big stack of duplicate **22B** (swept to the 50-card cap —
+  the buy-mastery accumulation) = the main sell target. Read-only; sells nothing. 11 tests
+  (incl. `distinct_models`). **Selling stays the gated next step** (destructive):
+- [ ] **Remaining for the SellDuplicatesRunner (dry-run-first, destructive):**
   1. My Vehicles grid → Y → focus 重复项 (dpad_down ×2 from 收藏) → A (toggle ON) → B.
      NOTE the toggle has no readable on/off state — verify it applied by checking the grid
      changed (brand-tab set shrinks), or always start from a known-off state.
