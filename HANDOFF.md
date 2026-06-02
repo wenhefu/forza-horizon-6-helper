@@ -1,5 +1,34 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-02 V5 full mode-three LIVE-VALIDATED + 2 fixes (filter stall)
+
+Ran the full mode-three with V5 nav live (`nav_mode="v5"`). Result: buy phase perfect
+(10x 22B + mastery, skill points exhausted -> "技术点数不足"; the earlier "rounds 2/3
+don't exhaust points" bug did NOT recur), buy->V5-nav handoff clean, and V5 nav drove
+the hard EventLab path (favorites tab -> found the user's "SP Farm / 24s race" event ->
+single-player -> car select). It STALLED once on the favorite-filter popup; root-caused
+to TWO issues, both now fixed and re-validated live (nav reached `pause_story 开始竞赛赛事`
+= goal, 10 steps/38.6s):
+
+1. **Reactor reacted to mid-transition frames.** `v5/reactor.py` gained `settle_polls`
+   (nav sets =1): after a press, once the screen changes, require it to read the SAME
+   for one extra poll before deciding -- skips 1-frame misreads (e.g. the filter popup
+   caught as `idle_showcase` before its highlight renders -> stray Menu press). Default
+   0 = original behavior, so existing reactor tests/uses are unchanged. 2 new tests.
+2. **Downscale-960 destroyed the filter's color-mask detection.** The OCR speedup
+   (`downscale_width=960`) desaturates the thin lime focus-highlight `find_lime_focus_boxes`
+   needs, so `filter_state` came back `{}` -> `filter_state_unknown` -> stall. (OCR text
+   is normalized and survives; color masks don't. Confirmed: full-res reads
+   `收藏/unchecked conf .96`, ds960 reads `{}`.) Fix in `v4/recognizer.py`: retain the
+   pre-downscale `full_frame`; if we downscaled AND landed on `eventlab_filter` with an
+   empty filter_state, recompute `detect_eventlab_filter_state` once on full_frame (cheap
+   color mask; normalized OCR boxes align at any res). `capture_method` shows `+ff` when
+   it fires. Keeps the OCR speedup everywhere else.
+
+178 passed, 22 skipped. Every link of the full mode-three is now live-proven across the
+runs: buy+handoff+EventLab-nav+event-select+race-type (full run), filter+car-select->
+race_menu (re-run with both fixes), nav->farm + farm (earlier V5 session).
+
 ## 2026-06-01 V5 phase 3b - full mode-three with V5 navigation (GUI toggle)
 
 `V4Mode3Runner.nav_mode` ("v4" default | "v5"): when "v5", the navigation phase of the FULL mode-three uses the event-driven `V5Navigator` (sharing the runner's recognizer + pad), so buy + farm stay on the proven V4 path and only the latency-heavy menu navigation is V5. GUI checkbox "导航用 V5 事件驱动(实验)" sets it on `on_start` (mirrors `_farm_mode`). The dispatcher (`_navigate` -> `_navigate_via_v5` / `_navigate_to_eventlab_prestart`) is unit-tested. 176 passed, 22 skipped.

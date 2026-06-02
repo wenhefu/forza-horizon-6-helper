@@ -53,6 +53,7 @@ class EventReactor:
         step_timeout: float = 2.5,
         poll_interval: float = 0.04,
         stall_seconds: float = 20.0,
+        settle_polls: int = 0,
         now=time.monotonic,
         sleep=None,
         stop_event=None,
@@ -68,6 +69,10 @@ class EventReactor:
         self.step_timeout = float(step_timeout)
         self.poll_interval = float(poll_interval)
         self.stall_seconds = float(stall_seconds)
+        # After a press, wait until the screen is the SAME for this many extra polls
+        # before deciding -- skips 1-frame mid-transition misreads (e.g. a filter
+        # popup caught before its focus-highlight renders). 0 = react on first change.
+        self.settle_polls = max(0, int(settle_polls))
         self._now = now
         self._sleep = sleep or time.sleep
         self._stop = stop_event
@@ -82,6 +87,8 @@ class EventReactor:
         last_progress = start
         awaiting = None  # token we pressed from; we are waiting for it to change
         awaiting_deadline = 0.0
+        settle_token = object()  # the changed token we are confirming is stable
+        settle_count = 0
         last_screen = ""
         while not self._stopped():
             now = self._now()
@@ -94,13 +101,25 @@ class EventReactor:
                 last_token = token
                 last_progress = now
             if awaiting is not None:
-                if token != awaiting:
-                    awaiting = None  # the press landed -> react this tick (the latency win)
-                elif now < awaiting_deadline:
-                    self._sleep(self.poll_interval)
-                    continue  # still waiting for the screen to change; do NOT re-press
-                else:
+                if token == awaiting:
+                    if now < awaiting_deadline:
+                        self._sleep(self.poll_interval)
+                        continue  # screen hasn't changed yet; do NOT re-press
                     awaiting = None  # step timed out -> re-decide / recover
+                else:
+                    # The press landed. Before reacting, let the new screen settle so
+                    # we never decide on a 1-frame mid-transition misread. With
+                    # settle_polls=0 this reacts immediately (the original behavior).
+                    if self.settle_polls > 0 and now < awaiting_deadline:
+                        if token == settle_token:
+                            settle_count += 1
+                        else:
+                            settle_token = token
+                            settle_count = 0
+                        if settle_count < self.settle_polls:
+                            self._sleep(self.poll_interval)
+                            continue  # wait for the new screen to stabilize
+                    awaiting = None  # settled (or timed out) -> react this tick
 
             decision = self.decide(understanding)
             if _is_done(decision):
@@ -119,4 +138,6 @@ class EventReactor:
             steps += 1
             awaiting = token
             awaiting_deadline = self._now() + self.step_timeout
+            settle_token = object()  # fresh confirmation window for the next change
+            settle_count = 0
         return ReactorResult("stopped", steps, self._now() - start, last_screen)

@@ -98,6 +98,7 @@ class V4Recognizer:
         # Optional downscale BEFORE OCR -- OCR cost scales with pixel count, and the
         # V2/focus logic is normalized so it is resolution-independent. Big speed-up
         # for the V5 nav. Default None keeps V4 behavior (full resolution).
+        full_frame = frame  # retained at native resolution for color-mask detections
         if downscale_width and getattr(frame, "width", 0) > int(downscale_width):
             from v3.frame_utils import resize_frame
 
@@ -114,6 +115,25 @@ class V4Recognizer:
             run_region_ocr=region_ocr,
             min_confidence=self.min_confidence,
         )
+        # Downscaling speeds up OCR, but it desaturates the thin lime focus-highlight the
+        # EventLab filter popup relies on -- OCR text is normalized so it survives, the
+        # color-mask find_lime_focus_boxes does not. When we downscaled and the filter
+        # state came back empty on the filter page, recompute it once on the retained
+        # full-res frame (cheap color mask; OCR boxes are normalized so they align).
+        if (
+            full_frame is not frame
+            and getattr(v3, "screen", "") == "eventlab_filter"
+            and not (getattr(v3, "filter_state", None) or {}).get("visible")
+        ):
+            try:
+                from v3.buying_ui import detect_eventlab_filter_state
+
+                recomputed = detect_eventlab_filter_state(full_frame, items)
+                if recomputed.get("visible"):
+                    v3.filter_state = recomputed
+                    method = f"{method}+ff"  # full-frame filter-state recompute
+            except Exception:
+                pass
         # The V1 smart detector is a slow pixel-loop; skip it when the caller does
         # not use smart_state (e.g. the V5 nav uses decide_mode3_navigation, which
         # reads only v3). Default keeps V4 behavior.

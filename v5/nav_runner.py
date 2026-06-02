@@ -182,6 +182,7 @@ class V5Navigator:
                 self.recognize, self.decide, self.press,
                 on_log=self.on_log, step_timeout=self.step_timeout,
                 stall_seconds=self.stall_seconds, stop_event=self._stop,
+                settle_polls=1,  # confirm the new screen is stable before reacting
             )
             result = reactor.run(max_seconds=self.max_seconds)
             avg_ms = (self._cap_ms_sum / self._cap_n) if self._cap_n else 0.0

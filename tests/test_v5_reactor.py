@@ -150,3 +150,62 @@ def test_reactor_max_seconds_timeout():
                        lambda b: None, now=clk.now, sleep=clk.sleep,
                        poll_interval=0.1, stall_seconds=100).run(max_seconds=0.5)
     assert res.reason == "timeout"
+
+
+class ScriptedFrames:
+    """Returns a fixed screen per recognize() (independent of presses), recording presses.
+
+    Models a real menu transition: after the press that opens a popup, the first
+    frame is a mid-transition misread before the page settles.
+    """
+
+    def __init__(self, frames):
+        self.frames = frames
+        self.i = 0
+        self.presses = []
+
+    def recognize(self):
+        scr = self.frames[min(self.i, len(self.frames) - 1)]
+        self.i += 1
+        return u(scr)
+
+    def press(self, button):
+        self.presses.append(button)
+
+
+def _bad_on_transient_decide(seen):
+    def decide(understanding):
+        seen.append(understanding.screen)
+        if understanding.screen == "GOAL":
+            return SimpleNamespace(button="", name="arrived", terminal=True)
+        if understanding.screen == "transient":
+            return SimpleNamespace(button="X", name="reacted_to_misread")
+        return SimpleNamespace(button="A", name="step")
+
+    return decide
+
+
+def test_settle_polls_skips_one_frame_transition_misread():
+    # s0 --press--> [transient (1-frame misread)] -> GOAL (settled). settle_polls=1
+    # must wait for the stable GOAL and never decide on the transient.
+    frames = ScriptedFrames(["s0", "transient", "GOAL", "GOAL", "GOAL", "GOAL"])
+    seen = []
+    clk = Clock()
+    res = EventReactor(frames.recognize, _bad_on_transient_decide(seen), frames.press,
+                       now=clk.now, sleep=clk.sleep, settle_polls=1,
+                       step_timeout=2.5, poll_interval=0.04).run(max_seconds=100)
+    assert res.reason == "goal"
+    assert frames.presses == ["a"]          # only the deliberate step, no stray "x"
+    assert "transient" not in seen          # the 1-frame misread was never decided on
+
+
+def test_settle_polls_zero_reacts_to_first_change():
+    # The original behavior (default 0): react to the first changed frame, misread included.
+    frames = ScriptedFrames(["s0", "transient", "GOAL", "GOAL"])
+    seen = []
+    clk = Clock()
+    res = EventReactor(frames.recognize, _bad_on_transient_decide(seen), frames.press,
+                       now=clk.now, sleep=clk.sleep, settle_polls=0,
+                       step_timeout=2.5, poll_interval=0.04).run(max_seconds=100)
+    assert "transient" in seen              # reacted to the transient (and pressed "x")
+    assert "x" in frames.presses
