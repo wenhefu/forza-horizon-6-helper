@@ -145,3 +145,42 @@ injection — confirming our path. (Others: Scruffydrew FH5 sniper, YiwenLu FH5 
 - [ ] GUI: target model + max buyout + Start-snipe button.
 
 Order done: A (skill points) ✓ → B (sell duplicates) ✓ → C (auction) researched, next to build.
+
+## Learnings from the FH6 OSS sniper (FrostyIsBored/FH6-Auction-House-Sniper)
+
+Studied the source (cloned to D:/fh6-sniper-src; public GitHub, **no LICENSE file** -> we
+learn the APPROACH/ideas, never copy code). Stack: opencv (template match) + bettercam
+(dxcam fork) + mss fallback + pynput keyboard + win11toast.
+
+**How it reads the screen:** TEMPLATE MATCHING, not a trained model and not OCR. It keeps
+`templates/*.png` (search, auction_details, buy_out, buyout_success, ...) and runs
+`cv2.matchTemplate` (TM_CCOEFF_NORMED, threshold 0.80), region-cropped per template, plus
+HSV colour masks (lime focus banner, yellow SOLD stamp, "pure-white" populated-card pixels).
+Contrast: we use YOLO ONNX + RapidOCR + rules (heavier, but reads real text/prices/skill-points
+and tolerates scale/language; template-match is fast but brittle -> they require 1920x1080,
+low graphics, English, and a moving-background flag).
+
+**Techniques worth adopting (ours):**
+1. **Mixed-resolution matching** — downscale most regions for speed, keep a few fine-text
+   crops at FULL res (their `_FULL_RES_TEMPLATES`). This is exactly the fix for our reverted
+   sell speedup: region-crop + downscale generally, full-res only for the menu text. SAFE speedup.
+2. **`_press_until(key, from_screen, targets, settle, retry)`** — press, wait `settle` for the
+   screen to leave `from_screen`, retry if stuck. More robust + faster than our read-every-step.
+3. **Randomised timing** — jittered key hold (20-45ms) + gap (20-55ms) + poll (40-90ms). Anti-ban
+   + human-like. Add jitter to our Gamepad taps.
+4. **`SetWindowDisplayAffinity(hwnd, WDA_EXCLUDEFROMCAPTURE)`** on the overlay so the bot never
+   captures its own HUD — this is the fix for our V5 dxcam self-occlusion (GUI window in frame).
+5. **Frame normalisation** — strip black bars + crop the 16:9 box in code, so ultrawide/letterbox
+   works without resizing the window (complements our window_util.resize_to_16_9).
+6. **HDR lime fallback** (wider HSV window) — the lime banner hue-shifts under HDR.
+7. **Global panic hotkey (F9)** — emergency stop.
+8. **`targets`/scoped matching** — only score templates for the expected screens (+ last-known).
+
+**For Phase C (auction snipe) — their proven flow + safety to replicate (via our vgamepad+OCR):**
+search-config -> navigate-to-Confirm (lime-highlight) -> Enter -> wait results -> wait cards
+RENDERED (banner shows before cards) -> first populated+not-sold slot -> Y -> **Down ONCE (never
+retry) + buyout_select_delay + Enter** (a dropped Down leaves Place-Bid highlighted, so a retried
+Enter would BID credits — critical safety) -> confirm Yes (handle progress/success/failed) ->
+collect -> loop. Recovery is ESC-only (never confirms). OUR EDGE: OCR can read the buy-now PRICE
+and car NAME, so we can enforce "buyout <= max price" and exact-model match, which pure template
+match can't.
