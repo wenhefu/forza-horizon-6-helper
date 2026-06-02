@@ -312,6 +312,26 @@ def detect_skill_points(ocr_text: str):
     return None
 
 
+def detect_vehicle_action_menu(ocr_text: str) -> dict:
+    """Recognize the per-car '选择操作' popup (A on a car in My Vehicles).
+
+    Live OCR: '选择操作 | 拍卖车辆 | 上车 | 添加至收藏 | 查看车辆 | 查看历史记录 |
+    从车库移除车辆 | 选择 | 取消'. 拍卖车辆 is the default-focused (top) option.
+    Returns visibility + which actions are present so a runner can act on it.
+    """
+    text = ocr_text or ""
+    visible = "选择操作" in text and (
+        "拍卖车辆" in text or "从车库移除" in text or "查看车辆" in text
+    )
+    return {
+        "visible": visible,
+        "has_auction": "拍卖车辆" in text,        # default-focused top option
+        "has_remove": "从车库移除" in text,        # remove from garage
+        "has_favorite": "添加至收藏" in text or "从收藏中移除" in text,
+        "has_drive": "上车" in text,
+    }
+
+
 def _ocr_text_inside_bbox(items, bbox) -> str:
     x1, y1, x2, y2 = clamp_bbox(bbox)
     parts = []

@@ -62,10 +62,17 @@ flags `当前车辆` / `已拥有`. Left panel: selected car stats + a suggested
 - [ ] (Future refinement) read per-node cost to stop at "< cheapest node" rather than 0.
 
 **Phase B — Sell duplicates (priority 3, medium; reuses My Vehicles + the action menu).**
-- [ ] New screen ids + recognition: `vehicle_action_menu`, `auction_create`.
-- [ ] Scan My Vehicles grid → group by car name → for each duplicate beyond N kept,
-  open 选择操作 → 拍卖车辆 (创建拍卖, accept suggested price, 确认) or 从车库移除车辆.
-- [ ] Safety: never sell 当前车辆 / favorites / the farm 22B; dry-run + confirm count.
+- [x] `detect_vehicle_action_menu(ocr_text)` — recognize the 选择操作 popup (拍卖车辆 /
+  从车库移除车辆 / 添加至收藏 / 上车) + 7-case detector test.
+- [x] `v4/sell_planner.py`: `plan_duplicate_sales(cards, keep_per_model=1)` +
+  `summarize_plan` — the vetted decision logic with HARD safety baked in: never sell
+  当前车辆 or 收藏; keep >= keep_per_model copies per model; only surplus non-protected
+  copies are ever proposed. 10 tests (incl. the never-sell invariants).
+- [ ] **Next:** grid scanner — walk My Vehicles card-by-card reading the focused name +
+  当前/收藏 flags into VehicleCards (like the buy manufacturer-grid scan).
+- [ ] **Next:** SellDuplicatesRunner — scan → `summarize_plan` DRY-RUN (report only) →
+  after dry-run is validated live, execute: for each card, 选择操作 → 拍卖车辆 →
+  创建拍卖 (accept suggested price) → 确认. Dry-run-first because it is destructive.
 
 **Phase C — Auction snipe (priority 2, largest; new runner + GUI).**
 - [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`
