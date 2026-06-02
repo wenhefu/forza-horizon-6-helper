@@ -13,11 +13,27 @@ def test_distinct_models_dedupes_preserving_order():
 
 # --- detect_vehicle_action_menu ------------------------------------------------
 
-def test_action_menu_detected_from_live_ocr():
+def test_action_menu_detected_from_auction_path_ocr():
     ocr = "选择操作 | 拍卖车辆 | 上车 | 添加至收藏 | 查看车辆 | 查看历史记录 | 从车库移除车辆 | 选择 | 取消"
     m = detect_vehicle_action_menu(ocr)
     assert m["visible"] and m["has_auction"] and m["has_remove"]
     assert m["has_favorite"] and m["has_drive"]
+    assert m["favorited"] is False  # 添加至收藏 -> not favorited
+
+
+def test_action_menu_my_vehicles_path_is_remove_only_not_favorited():
+    # via 我的车辆 directly: no 拍卖车辆, has 从车库移除车辆, 添加至收藏 => sellable
+    ocr = "选择操作 | 上车 | 添加至收藏 | 查看车辆 | 查看历史记录 | 从车库移除车辆 | 举报并移除涂装 | 选择 | 取消"
+    m = detect_vehicle_action_menu(ocr)
+    assert m["visible"] and m["has_remove"] and not m["has_auction"]
+    assert m["favorited"] is False
+
+
+def test_action_menu_favorited_car_is_protected():
+    # a favorited car shows 从收藏中移除 -> favorited=True -> never sell
+    ocr = "选择操作 | 上车 | 从收藏中移除 | 查看车辆 | 从车库移除车辆 | 选择 | 取消"
+    m = detect_vehicle_action_menu(ocr)
+    assert m["visible"] and m["favorited"] is True
 
 
 def test_action_menu_not_detected_elsewhere():

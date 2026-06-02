@@ -85,22 +85,25 @@ us**. `detect_eventlab_filter_state` reads the focus; 重复项 is the 3rd row (
   Live result: the garage holds a big stack of duplicate **22B** (swept to the 50-card cap —
   the buy-mastery accumulation) = the main sell target. Read-only; sells nothing. 11 tests
   (incl. `distinct_models`). **Selling stays the gated next step** (destructive):
-- [ ] **Remaining for the SellDuplicatesRunner (dry-run-first, destructive):**
-  1. My Vehicles grid → Y → focus 重复项 (dpad_down ×2 from 收藏) → A (toggle ON) → B.
-     NOTE the toggle has no readable on/off state — verify it applied by checking the grid
-     changed (brand-tab set shrinks), or always start from a known-off state.
-  2. **Walk navigation (live-probed):** after enabling, `dpad_right` traverses DISTINCT
-     duplicated models across brands in one sweep (observed: 3000MKIII→WRANGLER→SUPERVAN→
-     917LH→RS4→M5→IMPREZA 22B-STI VERSION→…), reading `selected_item` per step.
-  3. **The real challenge:** duplicate copies share the SAME name, so end/wrap detection
-     CANNOT use name-repeat (a repeated name may be a 2nd copy, not a wrap). Use either a
-     positional cue (a card index/count in the UI — TODO find it) OR the **sell-and-observe**
-     loop: sell the focused dup copy → the view re-renders and that model drops out once it
-     hits 1 copy → continue until the dup view is empty. Also the per-card 当前车辆/收藏
-     flags aren't reliably OCR-associated yet (needed so we never sell those).
-  4. `summarize_plan` → DRY-RUN report; after it's validated live, execute per card:
-     A → 选择操作 → 拍卖车辆 → 创建拍卖 (accept suggested price) → 确认. Then toggle 重复项 OFF.
-  Best built fresh with focused live iteration — dry-run is read-only so safe to tune.
+- [x] **Sell mechanism + safety fully mapped (live).**
+  - On a dup card, **A → 选择操作** (recognizer calls it `modal_warning`). The My-Vehicles
+    menu is REMOVE-only: 上车 / 添加至收藏 / 查看车辆 / 查看历史记录 / **从车库移除车辆** /
+    举报并移除涂装. (拍卖车辆/auction is only on the 拍卖场→开始拍卖 path.) So fast dup
+    clearing = **从车库移除车辆** (sell-for-credits, instant); auctioning is the slower path.
+  - **SAFETY (the key):** the cards are visually identical (no on-card current/fav badge),
+    but the menu reveals favorite state — `detect_vehicle_action_menu().favorited`:
+    **从收藏中移除 ⇒ favorited ⇒ the farm 22B the nav relies on ⇒ NEVER sell**; 添加至收藏 ⇒
+    not favorited ⇒ sellable. Confirmed live: a junk 22B shows 添加至收藏. Tested.
+- [ ] **Remaining before auto-removal (DESTRUCTIVE — do user-watched):**
+  - **Menu-focus read:** need to know which 选择操作 option is highlighted so we land on
+    从车库移除车辆 (5th) without misfiring (a misnav could hit 举报并移除涂装). The menu has a
+    lime focus box like the filter — reuse `find_lime_focus_boxes` on the menu region. THIS
+    is the last missing recognition piece.
+  - **Confirm dialog flow** after 从车库移除车辆 (capture the 确定/取消 popup).
+  - Loop: for each dup card → A → if `favorited` (从收藏中移除) **B (skip)**; else nav to
+    从车库移除车辆 → A → confirm. Keep ≥1; cap per run; restore 重复项 OFF at the end.
+  - **Validate with a single removal first** (1 confirmed-non-favorited junk 22B of the ~50),
+    user watching, verify the farm 22B is untouched, before any bulk run.
 
 **Phase C — Auction snipe (priority 2, largest; new runner + GUI).**
 - [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`

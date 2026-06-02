@@ -313,11 +313,15 @@ def detect_skill_points(ocr_text: str):
 
 
 def detect_vehicle_action_menu(ocr_text: str) -> dict:
-    """Recognize the per-car '选择操作' popup (A on a car in My Vehicles).
+    """Recognize the per-car '选择操作' popup (A on a car) + read its key state.
 
-    Live OCR: '选择操作 | 拍卖车辆 | 上车 | 添加至收藏 | 查看车辆 | 查看历史记录 |
-    从车库移除车辆 | 选择 | 取消'. 拍卖车辆 is the default-focused (top) option.
-    Returns visibility + which actions are present so a runner can act on it.
+    The menu DIFFERS by context (both live-captured):
+      - via 拍卖场→开始拍卖: '选择操作 | 拍卖车辆 | 上车 | 添加至收藏 | 查看车辆 |
+        查看历史记录 | 从车库移除车辆 | 选择 | 取消'  (拍卖车辆 present, default-focused)
+      - via 我的车辆 directly: '选择操作 | 上车 | 添加至收藏 | 查看车辆 | 查看历史记录 |
+        从车库移除车辆 | 举报并移除涂装 | 选择 | 取消'  (NO 拍卖车辆; remove-only)
+    The favorite option is the reliable per-car safety read: 添加至收藏 => NOT favorited
+    (sellable), 从收藏中移除 => favorited (the farm car the nav relies on => PROTECT).
     """
     text = ocr_text or ""
     visible = "选择操作" in text and (
@@ -325,9 +329,10 @@ def detect_vehicle_action_menu(ocr_text: str) -> dict:
     )
     return {
         "visible": visible,
-        "has_auction": "拍卖车辆" in text,        # default-focused top option
-        "has_remove": "从车库移除" in text,        # remove from garage
+        "has_auction": "拍卖车辆" in text,        # auction-path menu, default-focused
+        "has_remove": "从车库移除" in text,        # remove-from-garage (sell for credits)
         "has_favorite": "添加至收藏" in text or "从收藏中移除" in text,
+        "favorited": "从收藏中移除" in text,        # True => car IS favorited => never sell
         "has_drive": "上车" in text,
     }
 
