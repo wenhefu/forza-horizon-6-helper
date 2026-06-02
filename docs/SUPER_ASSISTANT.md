@@ -114,11 +114,34 @@ us**. `detect_eventlab_filter_state` reads the focus; 重复项 is the 3rd row (
     nav to 从车库移除车辆 → A → DpadDown → 嗯 → A. Keep ≥1; cap per run; restore 重复项 OFF.
   - **Validate with one removal first**, user watching, verify the farm 22B untouched.
 
-**Phase C — Auction snipe (priority 2, largest; new runner + GUI).**
-- [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`
-  (parse each listing's buy-now price + owned flag).
-- [ ] Runner: set search filters (model + max buy-now) → 确认 → loop-refresh results →
-  the instant a listing ≤ target price appears, 选择 → Y 拍卖选项 → 买断 → confirm.
-- [ ] GUI: target model + max price + a Start-snipe button.
+**Phase B — Sell duplicates — DONE + live-validated + GUI-integrated.**
+- Works end-to-end: `v4/sell_runner.py SellDuplicatesRunner.run_sell(max_sell, target_name)`
+  + `sell_launcher.py` + a GUI 「开始清理」button (gui_v4). Auto-navigates to My Vehicles,
+  enables 重复项, removes junk copies of the target model, restores the filter.
+- 3-layer safety (all live-proven): game won't remove the DRIVING car (no 从车库移除 option);
+  favorited cars skipped (从我的收藏中移除); per-deletion 确定要移除 confirm-dialog verified
+  before 嗯. **Live result: 200+ junk 22Bs cleared across runs, 0 aborts, farm 22B untouched.**
+- **Credits finding:** 从车库移除车辆 is a DECLUTTER, NOT a credit-sale (CR unchanged after
+  200 removals). In FH the only credit-recovery for a car is the auction (player-to-player,
+  impractical for hundreds). So clearing junk = freeing garage space, not earning credits.
+- Speed: ~15s/car reliable. A downscale-OCR speedup was reverted (960px mis-read the menu
+  rows on the destructive flow). Bigger speedup = region-OCR / template-matching of the menu
+  (careful, deferred — reliability first on a delete-path). Auto-nav handles pause_story /
+  pause_vehicle_entry / grid; `pause_my_horizon` start state still needs a tweak.
 
-Recommended order: A → B → C (ascending size/risk; A also fixes a real buy waste today).
+**Phase C — Auction snipe (priority 2, researched; new runner + GUI).**
+GitHub research (2026-06): a FH6-specific OSS sniper **FrostyIsBored/FH6-Auction-House-Sniper**
+uses our exact method — screen-reading + virtual input, runs only while FH6 is focused, NO
+injection — confirming our path. (Others: Scruffydrew FH5 sniper, YiwenLu FH5 OpenCV buyout.)
+- **In-game snipe flow (to replicate via vgamepad + screen-read):** 拍卖场 → 搜索拍卖 → set
+  车厂/型号/性能/最高买断价 → 确认 → watch 拍卖详情 → when a match ≤ max-buyout appears:
+  **Y (拍卖选项) → ↓ 买断(Buyout) → 确认** → collect → loop (re-search).
+- **Anti-ban (from research):** Playground flags static sub-ms / robotic delays — use
+  RANDOMIZED human-like tap timing (still no injection; just jittered delays). Keep the
+  game foreground (already required), 1920×1080, consistent graphics.
+- [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`
+  (parse each listing's buy-now price + 已拥有 flag). Currently mislabeled autoshow_buy_sell/unknown.
+- [ ] AuctionSnipeRunner: set filters once → loop-refresh → buyout-on-match → collect.
+- [ ] GUI: target model + max buyout + Start-snipe button.
+
+Order done: A (skill points) ✓ → B (sell duplicates) ✓ → C (auction) researched, next to build.

@@ -1,5 +1,28 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-03 Super-assistant — #3 sell-duplicates DONE + in GUI; #2 auction researched
+
+**#3 Sell duplicate cars — DONE, live-validated, GUI-integrated.** `v4/sell_runner.py`
+`SellDuplicatesRunner` + `sell_launcher.py` + a GUI 「开始清理」button (gui_v4, with a
+max-count input + 停止). Flow: auto-nav to My Vehicles → enable native 重复项 filter →
+for each card of the target model (default 22B) open 选择操作 → if `sellable` (has 从车库移除
+AND not favorited) navigate to 从车库移除车辆 (read selected_item each step) → A → VERIFY the
+确定要移除 confirm dialog → ↓ 嗯 → A. 3-layer safety, all live-proven: the DRIVING car has no
+remove option (game-native), favorited cars are skipped (从我的收藏中移除), and every deletion
+is gated on the confirm-dialog. **Live: 200+ junk 22Bs cleared, 0 aborts, farm 22B untouched.**
+Detectors: `detect_vehicle_action_menu` (favorited/sellable), `detect_remove_confirm`.
+- **Credits finding:** 从车库移除 is a DECLUTTER (no credits — CR unchanged after 200). FH gives
+  credits for cars only via the auction (impractical for hundreds).
+- **Speed:** ~15s/car reliable; a downscale-OCR speedup was reverted (mis-read the menu on the
+  destructive flow). Bigger speedup = region-OCR/template-matching (deferred; reliability first).
+- **Auto-nav** handles pause_story / pause_vehicle_entry / grid; `pause_my_horizon` needs a tweak.
+
+**#2 Auction snipe — researched (GitHub), next to build.** OSS confirms our approach:
+`FrostyIsBored/FH6-Auction-House-Sniper` (screen-read + virtual input, focused-window, no
+injection). In-game flow: 拍卖场 → 搜索拍卖 → set 车厂/型号/最高买断价 → 确认 → watch results →
+**Y(拍卖选项) → ↓ 买断 → 确认** → collect → loop. Anti-ban: use randomized tap timing. See
+docs/SUPER_ASSISTANT.md Phase C for the build TODO (new screen ids + AuctionSnipeRunner + GUI).
+
 ## 2026-06-02 Super-assistant — all UI mapped, #1 skill-points DONE, #3 foundation
 
 User wants a "super automation assistant" beyond buy+mastery: **(1) skill-point
