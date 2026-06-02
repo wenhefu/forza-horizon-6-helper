@@ -45,10 +45,19 @@ On a car in My Vehicles, **A** opens a centered popup `选择操作`:
 拍卖车辆 → "正在准备车辆…" load → `创建拍卖`: **起拍价** (e.g. 13,000) · **买断价**
 (150,000) · **拍卖时间** (1小时) · **确认** · 返回.
 
-### My Vehicles grid (sell/auction context) — shared layout with `eventlab_my_cars`
-Brand tabs (LB/RB), per-car cards with **rarity** (传奇/全新/史诗/普通/稀有) + perf number,
-flags `当前车辆` / `已拥有`. Left panel: selected car stats + a suggested price.
-→ duplicate detection = same car name appearing on >1 card.
+### My Vehicles grid (`更换车辆` → A) — `eventlab_my_cars`
+Organized by **manufacturer tabs** (LB/RB; first tab 当前车辆 = recent). Per-car cards:
+**rarity** (传奇/全新/史诗/普通/稀有) + perf number, flags `当前车辆` / `已拥有`. Focused card
+name = `selected_item`; left panel shows its brand (e.g. SUBARU) + stats.
+
+### ★ Native duplicate filter (`eventlab_filter`, already recognized)
+On the grid, **Y (切换筛选)** opens 筛选 with rows: 收藏 · 可用的车身套件和预设配置 ·
+**重复项 (DUPLICATES)** · 性能等级 (S1/S2) · 车辆类型. Focus a row, **A = 切换 (toggle)**,
+B back. Toggling **重复项** ON re-renders the grid to show ONLY duplicated models (brand
+tabs shrink to just brands you own >1 of) — i.e. **the game does duplicate-detection for
+us**. `detect_eventlab_filter_state` reads the focus; 重复项 is the 3rd row (its
+`focused_row` parses as '' but `text`='重复项', y≈0.33). This is the key enabler for Phase B
+(no full-garage scan needed).
 
 ## Build plan (phased — each its own focused effort + tests + live validation)
 
@@ -68,11 +77,17 @@ flags `当前车辆` / `已拥有`. Left panel: selected car stats + a suggested
   `summarize_plan` — the vetted decision logic with HARD safety baked in: never sell
   当前车辆 or 收藏; keep >= keep_per_model copies per model; only surplus non-protected
   copies are ever proposed. 10 tests (incl. the never-sell invariants).
-- [ ] **Next:** grid scanner — walk My Vehicles card-by-card reading the focused name +
-  当前/收藏 flags into VehicleCards (like the buy manufacturer-grid scan).
-- [ ] **Next:** SellDuplicatesRunner — scan → `summarize_plan` DRY-RUN (report only) →
-  after dry-run is validated live, execute: for each card, 选择操作 → 拍卖车辆 →
-  创建拍卖 (accept suggested price) → 确认. Dry-run-first because it is destructive.
+- [x] **Discovery:** the native **重复项 (Duplicates) filter** (above) — enable it and the
+  grid shows ONLY duplicates, so no 648-car scan. Live-confirmed toggling on/off.
+- [ ] **Next:** SellDuplicatesRunner (dry-run-first, destructive):
+  1. My Vehicles grid → Y → focus 重复项 (dpad_down ×2 from 收藏) → A (toggle ON) → B.
+  2. Walk the now-small dup set (per brand tab: dpad_right cards until name repeats; RB
+     next tab until tab repeats) reading `selected_item` + 当前车辆 flag → VehicleCards.
+     (favorite-flag read is still TODO — until then keep current + be conservative.)
+  3. `summarize_plan` → DRY-RUN report ("N× 22B, would sell N-1, keep current/fav").
+  4. After the dry-run is validated live, execute per card: A → 选择操作 → 拍卖车辆 →
+     创建拍卖 (accept suggested price) → 确认 (or 从车库移除车辆). Then toggle 重复项 OFF.
+  The walk's wrap/termination needs live iteration; dry-run is read-only so safe to tune.
 
 **Phase C — Auction snipe (priority 2, largest; new runner + GUI).**
 - [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`
