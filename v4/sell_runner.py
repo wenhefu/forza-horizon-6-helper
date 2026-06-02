@@ -150,16 +150,32 @@ class SellDuplicatesRunner:
             reason = "收藏" if menu["favorited"] else ("在驾驶/无移除项" if not menu["has_remove"] else "未知")
             self._tap("b", after=0.6)  # cancel; card untouched
             return f"skip_protected({reason})"
-        # sellable normal-car menu order: 上车 / 添加至收藏 / 查看车辆 / 查看历史记录 /
-        # 从车库移除车辆 / 举报并移除涂装. Opens on 上车 -> DpadDown ×4 -> 从车库移除车辆.
-        for _ in range(4):
-            self._tap("dpad_down", after=0.3)
-        self._tap("a", after=1.1)
-        _, _, ocr2 = self._look()
-        if not detect_remove_confirm(ocr2)["visible"]:
+        # Navigate to 从车库移除车辆 by READING the focused option each step (selected_item
+        # reports the focused menu row), so an absorbed first input just costs one more loop
+        # -- robust where a blind DpadDown ×4 mis-landed.
+        on_remove = False
+        for _ in range(8):
+            _, sel, _ = self._look()
+            if "从车库移除" in sel:
+                on_remove = True
+                break
+            self._tap("dpad_down", after=0.35)
+        if not on_remove:
+            self.on_log("    ⚠ 菜单里没定位到“从车库移除车辆”，退出。")
+            self._tap("b", after=0.6)
+            return "abort_no_target"
+        self._tap("a", after=0.8)
+        # Poll for the remove-confirm dialog (it can take a moment to render).
+        confirmed = False
+        for _ in range(5):
+            _, _, ocr2 = self._look()
+            if detect_remove_confirm(ocr2)["visible"]:
+                confirmed = True
+                break
+            self._sleep(0.3)
+        if not confirmed:
             self.on_log("    ⚠ 没确认到“从车库移除”对话框，放弃这一辆，退出菜单。")
-            self._tap("b", after=0.5)
-            self._tap("b", after=0.5)
+            self._tap("b", after=0.6)
             return "abort_no_confirm"
         # confirm dialog defaults to 不(No): DpadDown -> 嗯(Yes) -> A
         self._tap("dpad_down", after=0.4)
@@ -180,7 +196,7 @@ class SellDuplicatesRunner:
         scope = f"，只卖含“{target_name}”的车" if target_name else "（所有重复车型）"
         self.on_log(f"卖重复车[真删]：已开“重复项”，最多删 {max_sell} 辆{scope}（跳过收藏/正在驾驶的）。")
         sold, attempts, idle = 0, 0, 0
-        while sold < max_sell and idle < 8:
+        while sold < max_sell and idle < 12:
             attempts += 1
             screen, name, _ = self._look()
             if screen != "eventlab_my_cars":
