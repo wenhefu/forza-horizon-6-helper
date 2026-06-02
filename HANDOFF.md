@@ -1,5 +1,25 @@
 # Handoff - Forza Horizon 6 Helper
 
+## Build & test (2026-06-03)
+
+`dist/Forza6HelperV4GUI.exe` rebuilt from `v5-foundation` with the super-assistant features.
+Run it directly (keep Forza foreground); no install needed (ViGEmBus is the only external
+driver, and the GUI prompts/links it if missing). What's testable in this build:
+- **Mode-three** (开始): buy 22B + mastery → nav → farm. Now stops buying when skill points
+  hit 0 (no more doomed extra car).
+- **「导航用 V5 事件驱动」checkbox**: routes the nav phase through the faster V5 reactor.
+- **「清理重复22B」button** (+ max-count): clears junk 22B copies via the native 重复项 filter,
+  keeps the favorited/driving car, verifies the remove-confirm before each delete. Start from
+  My Vehicles or the 车辆 tab. NOTE: 从车库移除 declutters (no credits — FH limitation).
+- **「把地平线调成 16:9」**: window normalize.
+
+Build: `.venv/Scripts/python -m PyInstaller Forza6HelperV4GUI.spec --noconfirm --clean`.
+The **spec is gitignored**; its `hiddenimports` MUST list the lazily-imported modules
+(v5.nav_runner/reactor/screen_registry/capture_engine, v4.sell_runner/sell_planner,
+v3.buying_ui) or those features crash in the frozen exe. dxcam is NOT bundled (the integrated
+V5 nav uses engine=None; capture_engine imports dxcam lazily). Auction snipe (Phase C) is NOT
+in this build yet (only the detectors exist).
+
 ## 2026-06-03 Super-assistant — #3 sell-duplicates DONE + in GUI; #2 auction researched
 
 **#3 Sell duplicate cars — DONE, live-validated, GUI-integrated.** `v4/sell_runner.py`
