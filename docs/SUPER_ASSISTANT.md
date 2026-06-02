@@ -81,13 +81,20 @@ us**. `detect_eventlab_filter_state` reads the focus; 重复项 is the 3rd row (
   grid shows ONLY duplicates, so no 648-car scan. Live-confirmed toggling on/off.
 - [ ] **Next:** SellDuplicatesRunner (dry-run-first, destructive):
   1. My Vehicles grid → Y → focus 重复项 (dpad_down ×2 from 收藏) → A (toggle ON) → B.
-  2. Walk the now-small dup set (per brand tab: dpad_right cards until name repeats; RB
-     next tab until tab repeats) reading `selected_item` + 当前车辆 flag → VehicleCards.
-     (favorite-flag read is still TODO — until then keep current + be conservative.)
-  3. `summarize_plan` → DRY-RUN report ("N× 22B, would sell N-1, keep current/fav").
-  4. After the dry-run is validated live, execute per card: A → 选择操作 → 拍卖车辆 →
-     创建拍卖 (accept suggested price) → 确认 (or 从车库移除车辆). Then toggle 重复项 OFF.
-  The walk's wrap/termination needs live iteration; dry-run is read-only so safe to tune.
+     NOTE the toggle has no readable on/off state — verify it applied by checking the grid
+     changed (brand-tab set shrinks), or always start from a known-off state.
+  2. **Walk navigation (live-probed):** after enabling, `dpad_right` traverses DISTINCT
+     duplicated models across brands in one sweep (observed: 3000MKIII→WRANGLER→SUPERVAN→
+     917LH→RS4→M5→IMPREZA 22B-STI VERSION→…), reading `selected_item` per step.
+  3. **The real challenge:** duplicate copies share the SAME name, so end/wrap detection
+     CANNOT use name-repeat (a repeated name may be a 2nd copy, not a wrap). Use either a
+     positional cue (a card index/count in the UI — TODO find it) OR the **sell-and-observe**
+     loop: sell the focused dup copy → the view re-renders and that model drops out once it
+     hits 1 copy → continue until the dup view is empty. Also the per-card 当前车辆/收藏
+     flags aren't reliably OCR-associated yet (needed so we never sell those).
+  4. `summarize_plan` → DRY-RUN report; after it's validated live, execute per card:
+     A → 选择操作 → 拍卖车辆 → 创建拍卖 (accept suggested price) → 确认. Then toggle 重复项 OFF.
+  Best built fresh with focused live iteration — dry-run is read-only so safe to tune.
 
 **Phase C — Auction snipe (priority 2, largest; new runner + GUI).**
 - [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`
