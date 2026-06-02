@@ -32,7 +32,19 @@ NEXT — Phase B is DESTRUCTIVE → dry-run-first:
   `auction_results` (currently mislabeled `autoshow_buy_sell`/`unknown`) + a snipe runner
   (search filters → refresh results → buy-now ≤ target) + GUI. All flows mapped in the doc.
 
-195 passed, 22 skipped. Branch `v5-foundation`; latest `16982c8`. V4 default path unchanged.
+195 passed, 22 skipped. Branch `v5-foundation`; latest commit pushed. V4 default path unchanged.
+
+### Known open issues (for the next session)
+- **Farm smooth-exit can loop (V4 farm, not the V5 nav).** In a full buy→V5nav→farm
+  continuous run the farm raced fine, but after the target time its smooth-exit looped on
+  `farm_cancel_restart` (pressing B on a popup that didn't clear) → farm watchdog
+  force-stopped it → `exit_after_farm` failed (`run_once`=False). The farming itself
+  completes; only the wrap-up exit is affected (matters for looped multi-round runs). It is
+  intermittent/event-specific (an earlier nav+farm session exited cleanly), and likely the
+  same class as the filter bug — a post-race transition misread as `modal_warning`. To fix:
+  catch the stuck post-race screen with `ui_explorer.py` and either fix its recognition or
+  bound/redirect `decide_farm_loop`'s graceful-exit `farm_cancel_restart`.
+- **Phase B/C of the super-assistant** are not built yet (see the plan above + the doc).
 
 ## 2026-06-02 V5 full mode-three LIVE-VALIDATED + 2 fixes (filter stall)
 
