@@ -285,6 +285,33 @@ def detect_eventlab_filter_state(frame, ocr_items=None) -> dict:
     }
 
 
+def detect_skill_points(ocr_text: str):
+    """Available car-mastery skill points from menu OCR, or None if not shown.
+
+    Two surfaces show the count (verified live, FH6 zh-Hans):
+      - the Vehicles tab tile:   '18技术点数可用'  (number BEFORE 技术点数)
+      - the mastery tree footer: '可用点数' | '18 ('  (number AFTER 可用点数,
+        often a separate OCR token, hence the \\D gap)
+    The '技术点数不足' (insufficient) popup has no number -> returns None, leaving
+    that case to the existing skill_points_exhausted screen.
+    """
+    if not ocr_text:
+        return None
+    # mastery tree footer: '可用点数 ... N' (most specific, check first)
+    match = re.search(r"可用点数\D{0,6}(\d{1,4})", ocr_text)
+    if match:
+        return int(match.group(1))
+    # vehicles-tab tile: 'N技术点数可用' / 'N 技术点数'
+    match = re.search(r"(\d{1,4})\s*技[术術]点数", ocr_text)
+    if match:
+        return int(match.group(1))
+    # fallback: '技术点数 ... N'
+    match = re.search(r"技[术術]点数\D{0,6}(\d{1,4})", ocr_text)
+    if match:
+        return int(match.group(1))
+    return None
+
+
 def _ocr_text_inside_bbox(items, bbox) -> str:
     x1, y1, x2, y2 = clamp_bbox(bbox)
     parts = []
