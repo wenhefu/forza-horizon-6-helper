@@ -1,5 +1,39 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-02 Super-assistant — all UI mapped, #1 skill-points DONE, #3 foundation
+
+User wants a "super automation assistant" beyond buy+mastery: **(1) skill-point
+accounting, (2) auction sniping, (3) sell duplicate cars**, and to truly understand
+every UI. Full UI map + phased plan live in **`docs/SUPER_ASSISTANT.md`** (read it first).
+All target screens were live-explored with **`ui_explorer.py`** (a tool: `python
+ui_explorer.py <prefix> [btn ...]` → captures `samples/<label>.png` + dumps
+screen/selected/OCR, auto-dismisses the controller modal; `samples/` is gitignored).
+
+DONE + live-verified:
+- **#1 Skill-point accounting** — `v3/buying_ui.detect_skill_points(ocr_text)` reads
+  `'18技术点数可用'` (车辆 tab tile) / `'可用点数 18'` (mastery tree footer). The buy loop
+  (`buy_car_runner.py`, STATE_VEHICLE_TAB `return_to_buy_tab` branch) now reads it from
+  `detection.ocr_text` and STOPS at 0 instead of buying a doomed extra car (the exact
+  waste the user reported). Additive + guarded (None → old path; 技术点数不足 popup still
+  the safety net). Live-verified: real 车辆 tab → detect_skill_points == 18. 7 tests.
+- **#3 foundation** — `v4/sell_planner.py` `plan_duplicate_sales(cards, keep_per_model=1)`
+  + `summarize_plan` with HARD safety (NEVER sell 当前车辆/收藏; keep ≥ keep_per_model per
+  model; only surplus non-protected copies). `v3/buying_ui.detect_vehicle_action_menu`
+  recognizes the per-car `选择操作` popup (拍卖车辆/从车库移除车辆/添加至收藏/上车). 10 tests.
+
+NEXT — Phase B is DESTRUCTIVE → dry-run-first:
+- **Grid scanner**: walk My Vehicles card-by-card reading focused name + 当前/收藏 flags
+  into `VehicleCard`s (like the buy manufacturer-grid scan). The 当前车辆 label is in OCR;
+  favorite flag is an icon (needs work). Termination/wrap detection is the tricky part —
+  needs live iteration (not done; would be flaky if rushed).
+- **SellDuplicatesRunner**: scan → `summarize_plan` DRY-RUN (report only) → live-validate
+  → only then execute (选择操作 → 拍卖车辆 → 创建拍卖 accept suggested price → 确认).
+- Then **Phase C (auction snipe)**: new screen ids `auction_house`/`auction_search`/
+  `auction_results` (currently mislabeled `autoshow_buy_sell`/`unknown`) + a snipe runner
+  (search filters → refresh results → buy-now ≤ target) + GUI. All flows mapped in the doc.
+
+195 passed, 22 skipped. Branch `v5-foundation`; latest `16982c8`. V4 default path unchanged.
+
 ## 2026-06-02 V5 full mode-three LIVE-VALIDATED + 2 fixes (filter stall)
 
 Ran the full mode-three with V5 nav live (`nav_mode="v5"`). Result: buy phase perfect

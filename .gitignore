@@ -8,6 +8,7 @@ venv/
 logs/
 reports/
 runs/
+samples/
 yolov8*.pt
 datasets/forza_ui/raw*/
 datasets/forza_ui/_pruned/
