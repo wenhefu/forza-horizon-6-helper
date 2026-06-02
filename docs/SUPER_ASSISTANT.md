@@ -52,12 +52,14 @@ flags `当前车辆` / `已拥有`. Left panel: selected car stats + a suggested
 
 ## Build plan (phased — each its own focused effort + tests + live validation)
 
-**Phase A — Skill-point accounting (priority 1, smallest, improves existing buy).**
-- [x] `detect_skill_points(ocr_text)` + tests (this commit).
-- [ ] In the buy loop (`buy_car_runner.py`): after a car's mastery, read the count on
-  the 车辆 tab / mastery footer; if 0 (or below a per-car-mastery threshold), STOP
-  instead of buying another doomed car. Keep the 技术点数不足 popup as the safety net.
-- [ ] Optionally read per-node cost to compute "cars affordable = points / cost".
+**Phase A — Skill-point accounting (priority 1) — DONE + live-verified.**
+- [x] `detect_skill_points(ocr_text)` + 7 tests.
+- [x] Buy loop (`buy_car_runner.py`, STATE_VEHICLE_TAB return_to_buy_tab): reads the
+  count from `detection.ocr_text` ('X技术点数可用') after each car's mastery; if 0, stops
+  instead of buying a doomed next car. Additive + guarded (None → old path; 技术点数不足
+  popup still the safety net). Live-verified: on the real 车辆 tab the detector OCR holds
+  '18技术点数可用' and detect_skill_points returns 18.
+- [ ] (Future refinement) read per-node cost to stop at "< cheapest node" rather than 0.
 
 **Phase B — Sell duplicates (priority 3, medium; reuses My Vehicles + the action menu).**
 - [ ] New screen ids + recognition: `vehicle_action_menu`, `auction_create`.

@@ -6,6 +6,7 @@ import time
 import config
 import focus
 from ocr_engine import OcrReader
+from v3.buying_ui import detect_skill_points
 from buy_car_detector import (
     BuyCarScreenDetector,
     STATE_AUTOSHOW_GRID,
@@ -714,6 +715,21 @@ class BuyCarRunner:
                 if state == STATE_VEHICLE_TAB:
                     pad.neutral()
                     if return_to_buy_tab:
+                        # Skill-point accounting: the 车辆 tab shows 'X技术点数可用'.
+                        # If the mastery just drained the last points, buying another
+                        # car is wasted (its mastery would immediately hit 技术点数不足).
+                        # Read the count and stop here instead of buying a doomed car.
+                        # Additive + guarded: if the count can't be read (None) we fall
+                        # through to the old path, with 技术点数不足 still the safety net.
+                        points = detect_skill_points(getattr(detection, "ocr_text", "") or "")
+                        if points == 0:
+                            pad.neutral()
+                            self.points_exhausted = True
+                            self.stop_reason = "points_exhausted"
+                            self.on_log("车辆页：技术点数可用=0，已无点可加，不再买下一部车，买车阶段结束。")
+                            break
+                        if points is not None:
+                            self.on_log(f"车辆页：技术点数可用={points}，继续买下一部车加点。")
                         self.on_log("车辆页：熟练度已买完，按 LB 回到购买与出售页。")
                         showroom_nav_done = False
                         if not self._tap(pad, "lb", after=1.2):
