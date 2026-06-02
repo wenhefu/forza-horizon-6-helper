@@ -17,11 +17,22 @@ Detectors: `detect_vehicle_action_menu` (favorited/sellable), `detect_remove_con
   destructive flow). Bigger speedup = region-OCR/template-matching (deferred; reliability first).
 - **Auto-nav** handles pause_story / pause_vehicle_entry / grid; `pause_my_horizon` needs a tweak.
 
-**#2 Auction snipe — researched (GitHub), next to build.** OSS confirms our approach:
-`FrostyIsBored/FH6-Auction-House-Sniper` (screen-read + virtual input, focused-window, no
-injection). In-game flow: 拍卖场 → 搜索拍卖 → set 车厂/型号/最高买断价 → 确认 → watch results →
-**Y(拍卖选项) → ↓ 买断 → 确认** → collect → loop. Anti-ban: use randomized tap timing. See
-docs/SUPER_ASSISTANT.md Phase C for the build TODO (new screen ids + AuctionSnipeRunner + GUI).
+**#2 Auction snipe — researched + foundation built; runner is next.** OSS confirms our
+approach: `FrostyIsBored/FH6-Auction-House-Sniper` (cloned to D:/fh6-sniper-src; screen-read +
+virtual input, focused-window, NO injection; template-match not a trained model; no LICENSE ->
+learn ideas, don't copy). In-game flow: 拍卖场 → 搜索拍卖 → set 车厂/型号/最高买断价 → 确认 →
+watch results → **Y(拍卖选项) → ↓ 买断 (ONCE!) → 确认** → collect → loop.
+- DONE: `detect_auction_search/_results/_house/_buyout_confirm` (v3/buying_ui.py, 5 tests).
+- NEXT (credit-spending, user-watched): live-capture the Y→买断→confirm flow (refine
+  detect_buyout_confirm outcome strings), then AuctionSnipeRunner (dry-run first), then GUI.
+- Learnings to apply (docs/SUPER_ASSISTANT.md "Learnings from the FH6 OSS sniper"): mixed-res
+  matching, `_press_until` retry, RANDOMIZED tap timing (anti-ban), WDA_EXCLUDEFROMCAPTURE
+  (fixes V5 dxcam self-occlusion), frame normalisation, HDR lime fallback, the buy-out-not-bid
+  safety (↓ once + delay; ESC-only recovery never confirms).
+
+**Sell speedup (done):** sell nav is now hybrid (blind DpadDown x4 + full-res verify + fallback)
+~25-30% faster, reliable; auto-nav reduced to a reliable subset (grid/车辆-tab/modal else bail).
+Bigger sell speedup = region-OCR (cut the per-read full-frame OCR cost) -- careful future step.
 
 ## 2026-06-02 Super-assistant — all UI mapped, #1 skill-points DONE, #3 foundation
 

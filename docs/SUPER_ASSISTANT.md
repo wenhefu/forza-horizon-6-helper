@@ -139,10 +139,17 @@ injection — confirming our path. (Others: Scruffydrew FH5 sniper, YiwenLu FH5 
 - **Anti-ban (from research):** Playground flags static sub-ms / robotic delays — use
   RANDOMIZED human-like tap timing (still no injection; just jittered delays). Keep the
   game foreground (already required), 1920×1080, consistent graphics.
-- [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`
-  (parse each listing's buy-now price + 已拥有 flag). Currently mislabeled autoshow_buy_sell/unknown.
-- [ ] AuctionSnipeRunner: set filters once → loop-refresh → buyout-on-match → collect.
-- [ ] GUI: target model + max buyout + Start-snipe button.
+- [x] **Screen detectors built** (`v3/buying_ui.py`, standalone like the sell ones; the
+  classifier mislabels these): `detect_auction_search` / `detect_auction_results` /
+  `detect_auction_house` / `detect_buyout_confirm`. 5 tests from live OCR.
+- [ ] **Live-capture the buyout flow** (needs the auction open with listings): select a
+  listing → **Y (拍卖选项)** → the options popup → **买断** → its confirm → 成交/失败. Refine
+  `detect_buyout_confirm` outcome strings from these captures (currently guessed).
+- [ ] **AuctionSnipeRunner** (DRY-RUN first; then credit-spending, user-watched): user pre-sets
+  filters (型号 + 最高买断价) on 搜寻 → loop: 确认 → results → if a populated/not-sold listing →
+  Y → **↓ 买断 (ONCE, never retry) + delay → confirm** → 成交? collect → loop. Randomized timing.
+- [ ] GUI: target model + max buyout + Start-snipe button. (Optional: read buy-now PRICE via
+  OCR to enforce "≤ max" beyond the game filter — our edge over pure template match.)
 
 Order done: A (skill points) ✓ → B (sell duplicates) ✓ → C (auction) researched, next to build.
 
