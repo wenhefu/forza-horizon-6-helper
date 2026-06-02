@@ -67,6 +67,10 @@ class V4App:
         self.auto_focus = tk.BooleanVar(value=True)
         self.farm_mode = tk.StringVar(value="vision")
         self.use_v5_nav = tk.BooleanVar(value=False)
+        # sell-duplicates (Phase B): clear junk 22B copies, keep the favorited farm car
+        self.sell_max = tk.StringVar(value="80")
+        self._sell_thread = None
+        self._sell_stop = threading.Event()
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
         self.status_var = tk.StringVar(value="正在加载识别模型...")
@@ -192,8 +196,20 @@ class V4App:
                      width=10, state="readonly").pack(side="left", padx=(8, 8))
         ttk.Button(winrow, text="把地平线调成 16:9", command=self.resize_game_window,
                    style="App.TButton").pack(side="left")
+        # Sell-duplicates: clear junk 22B copies (keeps the favorited/driving farm car,
+        # verifies the remove-confirm dialog before each deletion). Start from My Vehicles
+        # or the pause menu; it navigates the rest.
+        sellrow = tk.Frame(body, bg=COLORS["surface"])
+        sellrow.grid(row=2, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        tk.Label(sellrow, text="清理重复22B(留收藏/在驾驶的那辆):", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).pack(side="left")
+        tk.Label(sellrow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
+        ttk.Entry(sellrow, textvariable=self.sell_max, width=5).pack(side="left")
+        tk.Label(sellrow, text="辆", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(2, 8))
+        self.sell_btn = ttk.Button(sellrow, text="开始清理", command=self.on_clear_duplicates,
+                                   style="App.TButton", state="disabled")
+        self.sell_btn.pack(side="left")
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
-                 font=FONT_SMALL, anchor="w").grid(row=2, column=0, columnspan=4, sticky="w", pady=(6, 0))
+                 font=FONT_SMALL, anchor="w").grid(row=3, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
     def _build_log(self, shell):
         card = self._card(shell, "运行日志")
@@ -271,7 +287,62 @@ class V4App:
     def on_stop(self):
         if self.runner is not None:
             self.runner.stop()
-            self._log("已请求停止。")
+        self._sell_stop.set()  # also stop a running duplicate-clear
+        self._log("已请求停止。")
+
+    def _sell_busy(self) -> bool:
+        return self._sell_thread is not None and self._sell_thread.is_alive()
+
+    def on_clear_duplicates(self):
+        if not self.runner_ready or self.runner is None:
+            self._log("识别模型还在加载,请稍候。")
+            return
+        if self.runner.is_running() or self._sell_busy():
+            return
+        try:
+            max_sell = max(1, int(self._read_float(self.sell_max, 80.0)))
+        except Exception:
+            max_sell = 80
+        self._sell_stop.clear()
+        self._log(f"开始清理重复 22B：最多删 {max_sell} 辆,跳过收藏/正在驾驶的那辆,删前核对确认框(可随时按停止)。")
+        self._log("请把 Forza 切到前台,停在 我的车辆 或暂停菜单(程序会自动进我的车辆)。")
+
+        def worker():
+            import time as _t
+            from gamepad import Gamepad
+            from v4.sell_runner import SellDuplicatesRunner
+
+            pad = None
+            try:
+                try:
+                    focus.activate_window(title_substr=config.GAME_TITLE, on_log=self._log)
+                except Exception:
+                    pass
+                _t.sleep(0.6)
+                pad = Gamepad()
+                _t.sleep(0.6)
+                for _ in range(3):  # dismiss a controller-disconnected modal if present
+                    snap = self.runner.recognizer.capture(full_ocr=True, region_ocr=True)
+                    if getattr(snap.v3, "screen", "") != "controller_disconnected":
+                        break
+                    pad.tap("a", hold=0.12)
+                    _t.sleep(1.0)
+                SellDuplicatesRunner(
+                    self.runner.recognizer, pad, dry_run=False, on_log=self._log,
+                    stop_event=self._sell_stop,
+                ).run_sell(max_sell=max_sell, target_name="22B")
+            except Exception as exc:
+                self._log(f"清理重复车出错:{exc}")
+            finally:
+                try:
+                    if pad is not None:
+                        pad.neutral()
+                except Exception:
+                    pass
+                self._log("清理重复车结束。")
+
+        self._sell_thread = threading.Thread(target=worker, name="v4-gui-sell", daemon=True)
+        self._sell_thread.start()
 
     def activate_game(self):
         try:
@@ -322,8 +393,10 @@ class V4App:
                 self.log.config(state="disabled")
         except queue.Empty:
             pass
-        running = bool(self.runner and self.runner.is_running())
-        self.start_btn.config(state="normal" if (self.runner_ready and not running) else "disabled")
+        running = bool(self.runner and self.runner.is_running()) or self._sell_busy()
+        idle_ready = self.runner_ready and not running
+        self.start_btn.config(state="normal" if idle_ready else "disabled")
+        self.sell_btn.config(state="normal" if idle_ready else "disabled")
         self.stop_btn.config(state="normal" if running else "disabled")
         if running:
             self.status_var.set("运行中...")
@@ -335,6 +408,7 @@ class V4App:
         try:
             if self.runner is not None:
                 self.runner.stop()
+            self._sell_stop.set()
         except Exception:
             pass
         self.root.after(150, self.root.destroy)

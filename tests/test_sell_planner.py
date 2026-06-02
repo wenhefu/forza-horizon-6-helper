@@ -22,6 +22,20 @@ def test_distinct_models_dedupes_preserving_order():
     assert distinct_models([]) == []
 
 
+def test_sell_runner_stop_event():
+    # the GUI's 停止 sets this event; run_sell's loop checks `not self._stopped()`
+    import threading
+
+    from v4.sell_runner import SellDuplicatesRunner
+
+    e = threading.Event()
+    r = SellDuplicatesRunner(object(), object(), stop_event=e)
+    assert r._stopped() is False
+    e.set()
+    assert r._stopped() is True
+    assert SellDuplicatesRunner(object(), object())._stopped() is False  # no event -> never stopped
+
+
 # --- detect_vehicle_action_menu ------------------------------------------------
 
 def test_action_menu_detected_from_auction_path_ocr():

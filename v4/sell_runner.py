@@ -41,6 +41,7 @@ class SellDuplicatesRunner:
         on_log=None,
         sleep=time.sleep,
         walk_steps: int = 50,
+        stop_event=None,
     ):
         self.recognizer = recognizer
         self.pad = pad
@@ -49,7 +50,11 @@ class SellDuplicatesRunner:
         self.on_log = on_log or (lambda message: None)
         self._sleep = sleep
         self.walk_steps = walk_steps
+        self._stop = stop_event
         self._filter_on = False
+
+    def _stopped(self) -> bool:
+        return self._stop is not None and self._stop.is_set()
 
     def _look(self):
         # full-res OCR: downscaling mis-read the 选择操作 menu rows (从车库移除 was missed),
@@ -213,7 +218,7 @@ class SellDuplicatesRunner:
         scope = f"，只卖含“{target_name}”的车" if target_name else "（所有重复车型）"
         self.on_log(f"卖重复车[真删]：已开“重复项”，最多删 {max_sell} 辆{scope}（跳过收藏/正在驾驶的）。")
         sold, attempts, idle = 0, 0, 0
-        while sold < max_sell and idle < 12:
+        while sold < max_sell and idle < 12 and not self._stopped():
             attempts += 1
             screen, name, _ = self._look()
             if screen != "eventlab_my_cars":
