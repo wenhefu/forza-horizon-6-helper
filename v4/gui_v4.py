@@ -305,7 +305,7 @@ class V4App:
             max_sell = 80
         self._sell_stop.clear()
         self._log(f"开始清理重复 22B：最多删 {max_sell} 辆,跳过收藏/正在驾驶的那辆,删前核对确认框(可随时按停止)。")
-        self._log("请把 Forza 切到前台,停在 我的车辆 或暂停菜单(程序会自动进我的车辆)。")
+        self._log("请先在游戏里打开「我的车辆」(暂停→车辆→更换车辆),或停在 车辆 标签页,再点开始清理。")
 
         def worker():
             import time as _t

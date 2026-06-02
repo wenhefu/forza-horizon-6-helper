@@ -102,21 +102,23 @@ class SellDuplicatesRunner:
             self._tap("dpad_right", after=0.4)
         return names
 
-    def _ensure_my_vehicles(self, attempts=8):
-        """Navigate to the My Vehicles grid from a pause-menu state (RB to the 车辆 tab ->
-        更换车辆 -> A). Returns True if reached. Safe: only menu navigation."""
+    def _ensure_my_vehicles(self, attempts=6):
+        """Reach the My Vehicles grid. RELIABLE subset only: already on the grid (done),
+        the 车辆 tab (-> 更换车辆 -> A), or a dismissable modal (B, e.g. controller modal /
+        移动至嘉年华). Any OTHER start state bails -- blind tab-cycling could wander into the
+        autoshow and trigger stray prompts. So: start from My Vehicles or the 车辆 tab."""
         for _ in range(attempts):
             screen, _, _ = self._look()
             if screen == "eventlab_my_cars":
                 return True
-            if screen == "pause_vehicle_entry":
+            if screen in ("controller_disconnected", "modal_warning"):
+                self._tap("b", after=0.8)          # dismiss a stray modal, then re-check
+            elif screen == "pause_vehicle_entry":
                 self._tap("dpad_up", after=0.4)
-                self._tap("dpad_up", after=0.4)   # reach 更换车辆 (top tile)
+                self._tap("dpad_up", after=0.4)    # reach 更换车辆 (top tile)
                 self._tap("a", after=1.3)          # open My Vehicles grid
-            elif screen.startswith("pause"):
-                self._tap("rb", after=1.0)         # cycle tabs toward 车辆
             else:
-                self._tap("b", after=0.9)          # back toward a menu
+                return False                       # unknown start -> bail, don't wander
         return self._look()[0] == "eventlab_my_cars"
 
     def run(self):
@@ -173,17 +175,22 @@ class SellDuplicatesRunner:
             reason = "收藏" if menu["favorited"] else ("在驾驶/无移除项" if not menu["has_remove"] else "未知")
             self._tap("b", after=0.6)  # cancel; card untouched
             return f"skip_protected({reason})"
-        # Navigate to 从车库移除车辆 by READING the focused row each step (proven: sold 200
-        # with 0 aborts). selected_item reports the focused menu option, so an absorbed input
-        # just costs one more loop.
-        on_remove = False
-        for _ in range(8):
-            _, sel, _ = self._look()
-            if "从车库移除" in sel:
-                on_remove = True
-                break
-            self._tap("dpad_down", after=0.3)
-        if not on_remove:
+        # Navigate to 从车库移除车辆. FAST path: the menu opens on 上车 and 从车库移除车辆 is
+        # the 5th row, so settle + blind DpadDown ×4 lands on it; verify with ONE FULL-RES
+        # read (full-res is essential here -- downscaling mis-reads these rows, the bug we
+        # reverted). If the blind guess is off (an absorbed input), fall back to read-every-
+        # step. ~1 read vs ~5; worst case still aborts safely on the confirm-dialog gate.
+        self._sleep(0.3)
+        for _ in range(4):
+            self._tap("dpad_down", after=0.22)
+        _, sel, _ = self._look()
+        if "从车库移除" not in sel:
+            for _ in range(6):
+                self._tap("dpad_down", after=0.3)
+                _, sel, _ = self._look()
+                if "从车库移除" in sel:
+                    break
+        if "从车库移除" not in sel:
             self.on_log("    ⚠ 菜单里没定位到“从车库移除车辆”，退出。")
             self._tap("b", after=0.6)
             return "abort_no_target"
