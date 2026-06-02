@@ -18,11 +18,13 @@ from __future__ import annotations
 
 import logging
 import threading
+import time
 from types import SimpleNamespace
 
 import focus
 from gamepad import BUTTON_NAMES, Gamepad
 from v4.decision import RouteContext, _is_start_race_focus, decide_mode3_navigation
+from v4.farm_runner import VisionFarmRunner
 from v4.recognizer import V4Recognizer
 from v5.capture_engine import CaptureEngine
 from v5.reactor import EventReactor
@@ -200,3 +202,70 @@ class V5Navigator:
 
     def stop(self):
         self._stop.set()
+
+
+class V5Session:
+    """A complete V5 cycle: event-driven nav -> proven VisionFarmRunner farm.
+
+    The buy phase still uses the proven V4 path (not included here); this session
+    proves the V5 navigation and hands a CONFIRMED start-race menu to the proven
+    farm runner, reusing the SAME recognizer + pad (so no controller reconnect
+    between nav and farm).
+    """
+
+    def __init__(
+        self,
+        title: str = "Forza",
+        goal: str = "race_menu",
+        farm_minutes: float = 0.0,
+        on_log=None,
+        logger=None,
+        auto_focus: bool = False,
+        require_foreground: bool = True,
+        use_capture_engine: bool = False,
+        downscale_width: int | None = 960,
+        max_seconds: float = 600.0,
+        nav=None,
+    ):
+        self.on_log = on_log or (lambda message: None)
+        self.farm_seconds = max(0.0, float(farm_minutes) * 60.0)
+        self.auto_focus = auto_focus
+        self.require_foreground = require_foreground
+        self.nav = nav if nav is not None else V5Navigator(
+            title=title, goal=goal, on_log=self.on_log, logger=logger, auto_focus=auto_focus,
+            require_foreground=require_foreground, use_capture_engine=use_capture_engine,
+            downscale_width=downscale_width, max_seconds=max_seconds,
+        )
+        self._farm = None
+
+    def run(self):
+        result = self.nav.run()
+        if getattr(result, "reason", "") != "goal":
+            self.on_log(f"V5 会话：导航未到达开始赛事菜单（{getattr(result, 'reason', '?')}），不进入刷图。")
+            return result
+        if self.farm_seconds <= 0:
+            self.on_log("V5 会话：已到开始赛事菜单；未设置刷图时长，结束。")
+            return result
+        self.on_log(
+            f"V5 会话：到达开始赛事菜单，交给证明过的 VisionFarmRunner 刷图约 {self.farm_seconds / 60:.1f} 分钟。"
+        )
+        self._farm = VisionFarmRunner(
+            title=self.nav.title, recognizer=self.nav.recognizer, on_log=self.on_log,
+            logger=self.nav.logger, pad_provider=lambda: self.nav._get_pad(),
+        )
+        self._farm.start(
+            total_seconds=self.farm_seconds, auto_focus=self.auto_focus,
+            require_foreground=self.require_foreground,
+        )
+        while self._farm.is_running():
+            time.sleep(0.3)
+        self.on_log(
+            f"V5 会话：刷图结束（{self._farm.exit_reason or 'done'}），共 {self._farm.laps} 圈，"
+            f"驾驶帧 {self._farm.race_hud_seen}。"
+        )
+        return result
+
+    def stop(self):
+        self.nav.stop()
+        if self._farm is not None:
+            self._farm.stop()

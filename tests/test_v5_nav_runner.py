@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import focus
 from v4.decision import normalize_button
-from v5.nav_runner import V5Navigator
+from v5.nav_runner import V5Navigator, V5Session
 
 
 def _u(screen, selected_item=""):
@@ -153,3 +153,42 @@ def test_run_auto_focus_activates_window(monkeypatch):
     )
     assert nav.run().reason == "goal"
     assert activated == ["Forza"]  # brought the game forward at start
+
+
+def _fake_nav(reason):
+    return SimpleNamespace(
+        run=lambda: SimpleNamespace(reason=reason), title="Forza", recognizer=object(),
+        logger=None, _get_pad=lambda: None, stop=lambda: None,
+    )
+
+
+def test_v5session_farms_only_after_nav_reaches_goal(monkeypatch):
+    started = {"n": 0}
+
+    class FakeFarm:
+        def __init__(self, **kwargs):
+            self.exit_reason, self.laps, self.race_hud_seen = "done", 0, 0
+
+        def start(self, **kwargs):
+            started["n"] += 1
+
+        def is_running(self):
+            return False  # completes instantly (no real sleep in the test)
+
+        def stop(self):
+            pass
+
+    monkeypatch.setattr("v5.nav_runner.VisionFarmRunner", FakeFarm)
+    V5Session(farm_minutes=1.0, nav=_fake_nav("goal")).run()
+    assert started["n"] == 1  # farmed after reaching the goal
+    started["n"] = 0
+    V5Session(farm_minutes=1.0, nav=_fake_nav("stalled")).run()
+    assert started["n"] == 0  # no farm if nav did not reach the goal
+
+
+def test_v5session_skips_farm_when_minutes_zero(monkeypatch):
+    def _boom(**kwargs):
+        raise AssertionError("farm must not start when farm_minutes=0")
+
+    monkeypatch.setattr("v5.nav_runner.VisionFarmRunner", _boom)
+    V5Session(farm_minutes=0.0, nav=_fake_nav("goal")).run()  # no farm -> no AssertionError

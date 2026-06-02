@@ -13,7 +13,7 @@ import argparse
 import logging
 
 import config
-from v5.nav_runner import V5Navigator
+from v5.nav_runner import V5Session
 
 
 def main(argv=None) -> int:
@@ -24,13 +24,15 @@ def main(argv=None) -> int:
     parser.add_argument("--allow-background", action="store_true", help="do not require the game foreground")
     parser.add_argument("--auto-focus", action="store_true", help="bring Forza to the foreground first (normal switch)")
     parser.add_argument("--downscale", type=int, default=960, help="downscale width before OCR (0 = off / full res)")
+    parser.add_argument("--farm-minutes", type=float, default=0.0, help="after reaching the race menu, farm this long (0 = nav only)")
     parser.add_argument("--max-seconds", type=float, default=600.0)
     args = parser.parse_args(argv)
 
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
-    nav = V5Navigator(
+    session = V5Session(
         title=args.title,
         goal=args.goal,
+        farm_minutes=args.farm_minutes,
         on_log=print,
         require_foreground=not args.allow_background,
         auto_focus=args.auto_focus,
@@ -38,7 +40,7 @@ def main(argv=None) -> int:
         downscale_width=(args.downscale or None),
         max_seconds=args.max_seconds,
     )
-    nav.run()
+    session.run()
     return 0
 
 
