@@ -1,5 +1,11 @@
 # Handoff - Forza Horizon 6 Helper
 
+## 2026-06-01 V5 phase 3b - full mode-three with V5 navigation (GUI toggle)
+
+`V4Mode3Runner.nav_mode` ("v4" default | "v5"): when "v5", the navigation phase of the FULL mode-three uses the event-driven `V5Navigator` (sharing the runner's recognizer + pad), so buy + farm stay on the proven V4 path and only the latency-heavy menu navigation is V5. GUI checkbox "导航用 V5 事件驱动(实验)" sets it on `on_start` (mirrors `_farm_mode`). The dispatcher (`_navigate` -> `_navigate_via_v5` / `_navigate_to_eventlab_prestart`) is unit-tested. 176 passed, 22 skipped.
+- The BUY phase intentionally stays on the proven V4 `BuyCarRunner`: it does the complex multi-car + mastery (加点) grinding and is NOT latency-sensitive, so a pure-V5-reactor buy is a deep, low-marginal-value follow-up. The V5 win is the navigation latency + the registry recovery.
+- To use: source GUI -> tick "导航用 V5 事件驱动" -> 开始 (or `runner.nav_mode="v5"`). Worth a full live run (buy + V5 nav + farm, a few minutes) to confirm the buy->V5-nav handoff end-to-end.
+
 ## 2026-06-01 V5 phase 3b - complete nav+farm session (live-validated)
 
 `v5/nav_runner.py` `V5Session` + `v5_nav_launcher.py --farm-minutes`: chains the V5 event-driven navigation to the PROVEN `VisionFarmRunner`, reusing the SAME recognizer + pad (no controller reconnect between phases). Live-validated end-to-end: controller-reconnect -> arrived (race menu) -> farm started the race -> 3 laps -> total time reached -> graceful exit (14 race_hud frames confirm it genuinely raced). The BUY phase still uses the proven V4 path (a reactor-driven V5 buy via `decide_buy_loop` is the remaining mode-three piece). `tests/test_v5_nav_runner.py` covers the session wiring (farm only after the nav reaches `goal`; skipped when `farm_minutes=0`). 175 passed, 22 skipped.

@@ -102,6 +102,7 @@ class V4Mode3Runner:
             stall_seconds=self.watchdog_seconds,
         )
         self._farm_mode = "vision"
+        self.nav_mode = "v4"  # "v5" -> event-driven V5Navigator for the nav phase
         self.report = V4RunReport(datetime.now(timezone.utc).astimezone().isoformat(), title)
         self._step_index = 0
 
@@ -191,7 +192,7 @@ class V4Mode3Runner:
             else:
                 self._log("V4 跳过买车阶段，从当前页面续接 EventLab 导航。")
 
-            if not self._navigate_to_eventlab_prestart(pad, auto_focus, require_foreground):
+            if not self._navigate(pad, auto_focus, require_foreground):
                 return self._finish(False, "eventlab_navigation_failed")
 
             if run_farm:
@@ -555,6 +556,27 @@ class V4Mode3Runner:
             return False
         self._log("V4 已确认买车阶段到达技术点数不足，开始 V3 视觉导航去 EventLab。")
         return True
+
+    def _navigate(self, pad, auto_focus: bool, require_foreground: bool) -> bool:
+        if self.nav_mode == "v5":
+            return self._navigate_via_v5(pad, auto_focus, require_foreground)
+        return self._navigate_to_eventlab_prestart(pad, auto_focus, require_foreground)
+
+    def _navigate_via_v5(self, pad, auto_focus: bool, require_foreground: bool) -> bool:
+        """Event-driven navigation via the V5 reactor, sharing this runner's
+        recognizer + pad. Buy/farm stay on the proven V4 path; only the nav phase
+        is V5 (no fixed settle sleeps). True when it reaches the start-race menu."""
+        from v5.nav_runner import V5Navigator
+
+        self._log("V4 导航阶段：改用 V5 事件驱动导航（共用识别器与手柄，去掉固定等待）。")
+        nav = V5Navigator(
+            title=self.title, goal="race_menu",
+            recognizer=self.recognizer, pad=pad, engine=None, use_capture_engine=False,
+            auto_focus=auto_focus, require_foreground=require_foreground,
+            on_log=self.on_log, logger=self.logger,
+            stall_seconds=self.watchdog_seconds, max_seconds=18 * 60,
+        )
+        return nav.run().reason == "goal"
 
     def _navigate_to_eventlab_prestart(self, pad, auto_focus: bool, require_foreground: bool) -> bool:
         context = RouteContext()

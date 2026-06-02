@@ -1258,3 +1258,15 @@ def test_buy_phase_monitor_keeps_buy_runner_on_buy_pages_even_if_smart_false_pre
     assert V4Mode3Runner._run_buy_phase(runner, auto_focus=False, require_foreground=True)
     assert runner.buy_runner.start_count == 1
     assert runner.buy_runner.stop_count == 0
+
+
+def test_navigate_dispatches_to_v5_when_nav_mode_is_v5():
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    calls = []
+    runner._navigate_via_v5 = lambda pad, a, r: (calls.append("v5") or True)
+    runner._navigate_to_eventlab_prestart = lambda pad, a, r: (calls.append("v4") or True)
+    runner.nav_mode = "v5"
+    assert V4Mode3Runner._navigate(runner, None, False, True) is True
+    runner.nav_mode = "v4"
+    V4Mode3Runner._navigate(runner, None, False, True)
+    assert calls == ["v5", "v4"]

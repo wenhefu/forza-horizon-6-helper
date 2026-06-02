@@ -66,6 +66,7 @@ class V4App:
         self.exit_after_farm = tk.BooleanVar(value=True)
         self.auto_focus = tk.BooleanVar(value=True)
         self.farm_mode = tk.StringVar(value="vision")
+        self.use_v5_nav = tk.BooleanVar(value=False)
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
         self.status_var = tk.StringVar(value="正在加载识别模型...")
@@ -147,6 +148,7 @@ class V4App:
             ("跳过刷图阶段(只到开始赛事菜单)", self.skip_farm),
             ("刷图结束后回收尾到暂停菜单", self.exit_after_farm),
             ("自动切回游戏前台(失焦时尝试)", self.auto_focus),
+            ("导航用 V5 事件驱动(实验·更快;买车/刷图仍用稳定版)", self.use_v5_nav),
         ]:
             ttk.Checkbutton(body, text=text, variable=var, style="App.TCheckbutton").grid(
                 row=row, column=0, columnspan=3, sticky="w", pady=5)
@@ -241,6 +243,7 @@ class V4App:
         startup = max(0.0, self._read_float(self.startup_delay, 4.0))
         self.runner.watchdog_seconds = watchdog
         self.runner._farm_mode = self.farm_mode.get()
+        self.runner.nav_mode = "v5" if self.use_v5_nav.get() else "v4"
         self._log(
             f"开始:farm_mode={self.farm_mode.get()} 跑图={farm_minutes}分钟 完整循环={loop_rounds}轮 看门狗={watchdog:.0f}s "
             f"跳过买车={self.skip_buy.get()} 跳过刷图={self.skip_farm.get()}"
