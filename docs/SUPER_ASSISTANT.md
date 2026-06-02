@@ -90,20 +90,29 @@ us**. `detect_eventlab_filter_state` reads the focus; 重复项 is the 3rd row (
     menu is REMOVE-only: 上车 / 添加至收藏 / 查看车辆 / 查看历史记录 / **从车库移除车辆** /
     举报并移除涂装. (拍卖车辆/auction is only on the 拍卖场→开始拍卖 path.) So fast dup
     clearing = **从车库移除车辆** (sell-for-credits, instant); auctioning is the slower path.
-  - **SAFETY (the key):** the cards are visually identical (no on-card current/fav badge),
-    but the menu reveals favorite state — `detect_vehicle_action_menu().favorited`:
-    **从收藏中移除 ⇒ favorited ⇒ the farm 22B the nav relies on ⇒ NEVER sell**; 添加至收藏 ⇒
-    not favorited ⇒ sellable. Confirmed live: a junk 22B shows 添加至收藏. Tested.
+  - **Confirm dialog (user-confirmed):** 从车库移除车辆 → "确定要移除所选车辆吗?" with
+    **不 (default, No)** / 嗯 (Yes). To confirm: DpadDown → 嗯 → A. The 不 default = a misnav
+    cancels safely.
+  - **Card badges (user-confirmed):** green steering-wheel = currently DRIVING (current car);
+    black solid heart = FAVORITED. The farm 22B has both + is tuned to **R 913**; junk copies
+    are stock **B 600**.
+  - **SAFETY — three independent protections for the farm 22B:**
+    1. **Game-native (strongest):** the currently-DRIVING car's 选择操作 has **NO 从车库移除车辆**
+       (and no 上车) — the game itself refuses to delete the car you are driving. So
+       `has_remove`=False ⇒ skip. Keep the farm 22B as the driving car ⇒ literally un-removable.
+    2. **Favorite:** favorited cars show **从收藏中移除 / 从我的收藏中移除** (match substring
+       "收藏中移除") ⇒ `favorited`=True ⇒ skip. The nav relies on a favorited 22B.
+    3. **Class:** farm = R 913 (tuned) vs junk = B 600 (stock) — a secondary distinguisher.
+  - `detect_vehicle_action_menu()` now returns **`sellable = has_remove and not favorited`**
+    (excludes BOTH the driving car and favorited cars). Tested.
 - [ ] **Remaining before auto-removal (DESTRUCTIVE — do user-watched):**
-  - **Menu-focus read:** need to know which 选择操作 option is highlighted so we land on
-    从车库移除车辆 (5th) without misfiring (a misnav could hit 举报并移除涂装). The menu has a
-    lime focus box like the filter — reuse `find_lime_focus_boxes` on the menu region. THIS
-    is the last missing recognition piece.
-  - **Confirm dialog flow** after 从车库移除车辆 (capture the 确定/取消 popup).
-  - Loop: for each dup card → A → if `favorited` (从收藏中移除) **B (skip)**; else nav to
-    从车库移除车辆 → A → confirm. Keep ≥1; cap per run; restore 重复项 OFF at the end.
-  - **Validate with a single removal first** (1 confirmed-non-favorited junk 22B of the ~50),
-    user watching, verify the farm 22B is untouched, before any bulk run.
+  - **Menu-focus read:** know which 选择操作 option is highlighted to land on 从车库移除车辆
+    without misfiring (reuse `find_lime_focus_boxes` on the menu region). Last recognition piece.
+    Mitigated by safe defaults: menu default is 上车 (drive = harmless), remove-confirm default
+    is 不 (No).
+  - Loop: for each dup card → A → if NOT `sellable` (driving/favorited) **B (skip)** → else
+    nav to 从车库移除车辆 → A → DpadDown → 嗯 → A. Keep ≥1; cap per run; restore 重复项 OFF.
+  - **Validate with one removal first**, user watching, verify the farm 22B untouched.
 
 **Phase C — Auction snipe (priority 2, largest; new runner + GUI).**
 - [ ] New screen ids + recognition: `auction_house`, `auction_search`, `auction_results`

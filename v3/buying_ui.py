@@ -327,13 +327,24 @@ def detect_vehicle_action_menu(ocr_text: str) -> dict:
     visible = "选择操作" in text and (
         "拍卖车辆" in text or "从车库移除" in text or "查看车辆" in text
     )
+    has_remove = "从车库移除" in text
+    # Favorited shows as 从收藏中移除 OR 从我的收藏中移除 -> match the shared substring
+    # (a plain "从收藏中移除" check MISSED 从我的收藏中移除 -> would fail to protect a fav car).
+    favorited = "收藏中移除" in text
+    has_drive = "上车" in text
     return {
         "visible": visible,
-        "has_auction": "拍卖车辆" in text,        # auction-path menu, default-focused
-        "has_remove": "从车库移除" in text,        # remove-from-garage (sell for credits)
-        "has_favorite": "添加至收藏" in text or "从收藏中移除" in text,
-        "favorited": "从收藏中移除" in text,        # True => car IS favorited => never sell
-        "has_drive": "上车" in text,
+        "has_auction": "拍卖车辆" in text,        # auction-path menu (default-focused 拍卖车辆)
+        "has_remove": has_remove,                 # 从车库移除车辆 present == the game allows removal
+        "has_favorite": "添加至收藏" in text or favorited,
+        "favorited": favorited,                    # True => the farm car => NEVER sell
+        "has_drive": has_drive,
+        # GAME-NATIVE PROTECTION: the currently-DRIVING car's menu has NO 上车 and NO
+        # 从车库移除车辆 -- you cannot delete the car you are driving. So has_remove is the
+        # primary safety: if it's missing, the game itself refuses to remove this car.
+        "is_driving": visible and not has_drive,
+        # Safe to sell ONLY if the game offers removal AND the car is not favorited.
+        "sellable": has_remove and not favorited,
     }
 
 

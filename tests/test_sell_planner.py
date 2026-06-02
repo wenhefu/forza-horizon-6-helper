@@ -27,6 +27,7 @@ def test_action_menu_my_vehicles_path_is_remove_only_not_favorited():
     m = detect_vehicle_action_menu(ocr)
     assert m["visible"] and m["has_remove"] and not m["has_auction"]
     assert m["favorited"] is False
+    assert m["sellable"] is True          # removable + not favorited
 
 
 def test_action_menu_favorited_car_is_protected():
@@ -34,6 +35,25 @@ def test_action_menu_favorited_car_is_protected():
     ocr = "选择操作 | 上车 | 从收藏中移除 | 查看车辆 | 从车库移除车辆 | 选择 | 取消"
     m = detect_vehicle_action_menu(ocr)
     assert m["visible"] and m["favorited"] is True
+    assert m["sellable"] is False
+
+
+def test_action_menu_my_favorites_variant_is_detected():
+    # the live driving/favorited car shows '从我的收藏中移除' (note the 我的) -> must still
+    # read favorited=True, else we would fail to protect the farm car.
+    ocr = "选择操作 | 从我的收藏中移除 | 查看车辆 | 查看历史记录 | 举报并移除涂装 | 选择 | 取消"
+    m = detect_vehicle_action_menu(ocr)
+    assert m["favorited"] is True
+    assert m["sellable"] is False
+
+
+def test_action_menu_driving_car_has_no_remove_option():
+    # GAME-NATIVE protection: the currently-driving car's menu has no 上车 and no
+    # 从车库移除车辆 -> the game refuses removal -> never sellable.
+    ocr = "选择操作 | 从我的收藏中移除 | 查看车辆 | 查看历史记录 | 举报并移除涂装 | 选择 | 取消"
+    m = detect_vehicle_action_menu(ocr)
+    assert m["has_remove"] is False and m["is_driving"] is True
+    assert m["sellable"] is False
 
 
 def test_action_menu_not_detected_elsewhere():
