@@ -12,6 +12,17 @@ Latest changes on top of 2026-06-03 below:
 - **Loop order option (运行选项 radio): 先买车再跑图 (default) / 先跑图再买车.** `run_once(buy_first=)`
   sequences phases buy→nav→farm or nav→farm→exit→buy; farm-first forces the post-farm return
   to the pause menu so the buy phase starts clean. Both start from the pause menu.
+- **Auction speed levers (拍卖场抢车 row, 2 experimental checkboxes, OFF by default).** All new
+  code in `AuctionIO`; the safety-critical `AuctionSniper` flow (never-bid) is untouched.
+  ① 快速买断 (`AUCTION_FAST_BUYOUT`): open buy-out via the **Y 拍卖选项 quick-menu**, skipping the
+  ~3-5s 车辆详情 page; `classify_auction_screen` tags it `OPTIONS` (detect_auction_options);
+  `open_buyout` falls back to the validated Enter→车辆详情 if the menu isn't recognized;
+  `select_buyout` only Enters when 买断 is the **confirmed focus** (else backs out) — and the
+  sniper's confirm gate still aborts on the BID dialog, so it can never bid. Quick-menu
+  tokens/layout are **REFINE-LIVE** (server was down). ② 变化才识别 (`AUCTION_RECOGNIZE_ON_CHANGE`):
+  skip the ~0.7s OCR on frames unchanged since the last OCR (cheap frame-diff in `screen()`);
+  accuracy-safe (changed frame always re-OCRs). Both need a **live test** before trusting; the
+  validated path runs when they're off.
 
 ## Build & test (2026-06-03)
 
