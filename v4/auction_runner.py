@@ -268,6 +268,7 @@ class AuctionIO:
         tap_hold: float = 0.12,
         settle: float = 0.55,
         verbose: bool = False,
+        stop_event=None,
     ):
         self.recognizer = recognizer
         self.pad = pad
@@ -277,12 +278,16 @@ class AuctionIO:
         self.tap_hold = tap_hold
         self.settle = settle
         self.verbose = verbose
+        self._stop = stop_event
         self._last_text = ""
         self._last_selected = ""
 
     def _dbg(self, msg: str) -> None:
         if self.verbose:
             self.on_log(msg)
+
+    def _stopped(self) -> bool:
+        return self._stop is not None and self._stop.is_set()
 
     # --- sensing (full-res OCR, mirrors the stable sell runner) ---------------
     def _look(self) -> str:
@@ -341,10 +346,14 @@ class AuctionIO:
         selected_item reads 确认, then A. A mis-press here only toggles a filter field (no
         credits), and the next cycle re-tries, so it is self-correcting."""
         for _ in range(7):
+            if self._stopped():
+                return
             if "确认" in str(self._last_selected):
                 break
             self.press("down")
             self._look()
+        if self._stopped():
+            return
         self.press("enter")                          # 确认 -> fresh query
 
     def _log_buyout_price(self) -> None:
@@ -376,6 +385,8 @@ class AuctionIO:
             self.press("esc")
         self.press("enter")                          # FALLBACK: 选择 -> 车辆详情 (validated)
         for _ in range(8):
+            if self._stopped():
+                return False
             tag = classify_auction_screen(self._look())
             self._dbg(f"  [开] 选择后 识别={tag}")
             if tag == DETAIL or detect_auction_options(self._last_text)["visible"]:
@@ -391,22 +402,33 @@ class AuctionIO:
         self.press("enter")
 
     def confirm_buyout(self) -> str:
-        """Press 嗯 (default-focused) on the ALREADY-VERIFIED 买断 dialog, then wait for the
-        outcome. Success signal (captured live) is the 买断成功 popup ('您可以在我的竞价页面
-        领取该车辆'); the car is then paid for and parked in 我的竞价. collect() dismisses it."""
-        self.press("enter")
+        """Press 嗯 on the ALREADY-VERIFIED 买断 dialog, then wait for the outcome. Like the
+        reference sniper's _confirm_yes: if the 买断 confirm is STILL showing, the 嗯 was
+        dropped -> RE-PRESS (up to 4 total). Success = the 买断成功 popup ('您可以在我的竞价页面
+        领取该车辆'); the car is then paid for and parked in 我的竞价. On timeout we report
+        'failed' -- never claim a buy we didn't actually see confirmed."""
+        self.press("enter")                          # 嗯
+        attempts = 1
         for _ in range(30):                          # buy can take a few seconds to settle
+            if self._stopped():
+                return "stopped"
             text = self._look()
             if detect_buyout_success(text)["visible"] or self._last_selected == "买断成功":
                 return "bought"
             if detect_buyout_confirm(text)["failed"]:
                 return "failed"
-            # confirm dialog gone + back at a list -> assume the buy went through
-            if (not detect_buyout_confirm(text)["visible"]
-                    and classify_auction_screen(text) in (RESULTS, DETAIL, HOUSE)):
-                return "bought"
-            self._sleep(0.3)
-        return "bought"   # 嗯 was pressed on a verified buy-out; collect() will settle
+            if detect_buyout_confirm(text)["visible"]:
+                # the 买断 confirm is STILL up -> the 嗯 was dropped; re-press (bounded to 4).
+                if attempts < 4:
+                    self._dbg(f"  [确认] 买断框仍在,重按嗯 (#{attempts + 1})")
+                    self.press("enter")
+                    attempts += 1
+                self._sleep(0.2)
+                continue
+            if classify_auction_screen(text) in (RESULTS, DETAIL, HOUSE):
+                return "bought"                      # dialog gone, no failure marker -> bought
+            self._sleep(0.2)
+        return "failed"   # never saw 买断成功 -> do NOT claim a purchase
 
     def collect(self) -> None:
         """Settle the game after a buy-out. The IMMEDIATE post-buy popup is 买断成功
@@ -415,6 +437,8 @@ class AuctionIO:
         已加入车库 flow if one is shown. Bounded so it can never spin; all presses here are safe
         (the car is already paid -- no buy or bid is possible)."""
         for i in range(40):
+            if self._stopped():
+                return
             text = self._look()
             self._dbg(f"  [收{i}] 选中={self._last_selected!r} OCR: {text[:120]}")
             if detect_buyout_success(text)["visible"] or self._last_selected == "买断成功":

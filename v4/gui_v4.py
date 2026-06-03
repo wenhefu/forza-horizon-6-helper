@@ -215,13 +215,14 @@ class V4App:
         self.sell_btn = ttk.Button(sellrow, text="开始清理", command=self.on_clear_duplicates,
                                    style="App.TButton", state="disabled")
         self.sell_btn.pack(side="left")
-        # Auction-house snipe (Phase C): buy out the first listing of a search the USER
-        # pre-sets in-game (拍卖场 -> 搜索拍卖 -> 型号/最高买断价 -> 确认 -> 停在结果页). "空跑验证"
-        # walks to 车辆详情/买断 then backs out (zero spend); "开始抢车" presses 嗯 (买断, never
-        # 竞价/bid) and auto-collects the won car. Stop with 停止.
+        # Auction-house snipe (Phase C). The USER sets the search filter in-game and STOPS ON
+        # THE 搜寻 (search-config) page; the snipe RE-SEARCHES each cycle (确认 -> read results
+        # -> buy 买断 if the target is there, else back to 搜寻 and search again), because the
+        # results list never auto-refreshes. "空跑验证" rehearses with zero spend; "开始抢车"
+        # buys 买断 (never 竞价/bid); "停止抢车" (or the global 停止) halts it.
         sniperow = tk.Frame(body, bg=COLORS["surface"])
         sniperow.grid(row=3, column=0, columnspan=4, sticky="we", pady=(8, 0))
-        tk.Label(sniperow, text="拍卖场抢车(先设好搜索、停在结果页):", bg=COLORS["surface"],
+        tk.Label(sniperow, text="拍卖场抢车(停在『搜寻』页、过滤设紧):", bg=COLORS["surface"],
                  fg=COLORS["text"], font=FONT).pack(side="left")
         tk.Label(sniperow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
         ttk.Entry(sniperow, textvariable=self.snipe_max, width=4).pack(side="left")
@@ -229,9 +230,12 @@ class V4App:
         self.snipe_dry_btn = ttk.Button(sniperow, text="空跑验证", command=self.on_snipe_dry,
                                         style="App.TButton", state="disabled")
         self.snipe_dry_btn.pack(side="left", padx=(0, 6))
-        self.snipe_buy_btn = ttk.Button(sniperow, text="开始抢车(真买)", command=self.on_snipe_buy,
+        self.snipe_buy_btn = ttk.Button(sniperow, text="开始抢车", command=self.on_snipe_buy,
                                         style="App.TButton", state="disabled")
-        self.snipe_buy_btn.pack(side="left")
+        self.snipe_buy_btn.pack(side="left", padx=(0, 6))
+        self.snipe_stop_btn = ttk.Button(sniperow, text="停止抢车", command=self.on_snipe_stop,
+                                         style="App.TButton", state="disabled")
+        self.snipe_stop_btn.pack(side="left")
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
                  font=FONT_SMALL, anchor="w").grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
@@ -379,6 +383,10 @@ class V4App:
     def on_snipe_buy(self):
         self._start_snipe(dry_run=False)
 
+    def on_snipe_stop(self):
+        self._snipe_stop.set()
+        self._log("抢车：已请求停止(当前这步走完就停)。")
+
     def _start_snipe(self, *, dry_run: bool):
         if not self.runner_ready or self.runner is None:
             self._log("识别模型还在加载,请稍候。")
@@ -390,11 +398,14 @@ class V4App:
         except Exception:
             max_cars = 1
         self._snipe_stop.clear()
+        # Clear, correct start-page guidance (the snipe RE-SEARCHES every cycle).
+        self._log("【抢车怎么用】① 进 拍卖场 → 搜索拍卖；② 设好 车厂+型号+最高买断价(设紧,只让目标车出现)；")
+        self._log("　 ③ 把光标放到『确认』上,停在这个『搜寻』配置页(不用自己按确认);④ 再点这里。")
+        self._log("　 它会自动:确认→看结果→有目标就买断,没有就退回搜寻再搜,如此循环(结果页不会自己刷新)。")
         if dry_run:
-            self._log("抢车[空跑]：走到『车辆详情/买断』就退出,绝不购买(零风险验证)。")
+            self._log("抢车[空跑]：只走到看到『买断』就退出,绝不购买(零风险验证一遍流程)。")
         else:
-            self._log(f"抢车[真买]：最多买 {max_cars} 辆,只买断不出价,买后自动领取(可随时按停止)。")
-        self._log("请先在游戏里:拍卖场 → 搜索拍卖 → 设好型号/最高买断价 → 确认 → 停在结果页,再点这里。")
+            self._log(f"抢车[真买]：最多买 {max_cars} 辆,只买断不出价(误入竞价框会停手);随时按『停止抢车』。")
 
         def worker():
             import time as _t
@@ -416,7 +427,8 @@ class V4App:
                         break
                     pad.tap("a", hold=0.12)
                     _t.sleep(1.0)
-                io = AuctionIO(self.runner.recognizer, pad, title=config.GAME_TITLE, on_log=self._log)
+                io = AuctionIO(self.runner.recognizer, pad, title=config.GAME_TITLE,
+                               on_log=self._log, stop_event=self._snipe_stop)
                 # Guard: only act when we're actually in the auction house, so a mis-click
                 # can't send stray B-presses wandering through unrelated menus.
                 auction_tags = {"results", "search", "detail", "buyout_confirm", "bid_confirm"}
@@ -503,6 +515,7 @@ class V4App:
         self.sell_btn.config(state="normal" if idle_ready else "disabled")
         self.snipe_dry_btn.config(state="normal" if idle_ready else "disabled")
         self.snipe_buy_btn.config(state="normal" if idle_ready else "disabled")
+        self.snipe_stop_btn.config(state="normal" if self._snipe_busy() else "disabled")
         self.stop_btn.config(state="normal" if running else "disabled")
         if running:
             self.status_var.set("运行中...")
