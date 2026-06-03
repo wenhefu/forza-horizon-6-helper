@@ -1,5 +1,18 @@
 # Handoff - Forza Horizon 6 Helper
 
+## Build & test (2026-06-04)
+
+Latest changes on top of 2026-06-03 below:
+- **EventLab "tab unknown" no longer freezes→fails on a slow connection.** When the events
+  grid is still loading the tab bar reads as unknown; V4 now nudges RB toward 我的收藏
+  (bounded `EVENTLAB_TAB_UNKNOWN_MAX_NUDGES=4`; RB only moves tabs) then waits PATIENTLY —
+  the nav loop holds off the stall-watchdog while in a known loading state (tab_unknown_wait /
+  nudge / wait_modal_loading) up to `EVENTLAB_NETWORK_PATIENCE_SECONDS=300s`, then gives up
+  the round. Stop button + 18-min route cap still bound it.
+- **Loop order option (运行选项 radio): 先买车再跑图 (default) / 先跑图再买车.** `run_once(buy_first=)`
+  sequences phases buy→nav→farm or nav→farm→exit→buy; farm-first forces the post-farm return
+  to the pause menu so the buy phase starts clean. Both start from the pause menu.
+
 ## Build & test (2026-06-03)
 
 `dist/Forza6HelperV4GUI.exe` rebuilt from `v5-foundation` with the super-assistant features.
