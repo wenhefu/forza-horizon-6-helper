@@ -442,7 +442,7 @@ class V4App:
                     return
                 sniper = AuctionSniper(
                     io, dry_run=dry_run, max_cars=max_cars, on_log=self._log,
-                    stop_event=self._snipe_stop,
+                    stop_event=self._snipe_stop, auto_focus=self.auto_focus.get(),
                 )
                 result = sniper.run()
                 self._log(f"抢车结束：{result}(已买 {sniper.bought} 辆,尝试 {sniper.searches} 次)")

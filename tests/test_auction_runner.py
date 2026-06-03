@@ -75,9 +75,14 @@ class FakeIO:
         self._confirm_screen = confirm_screen   # what select_buyout lands on (buyout vs BID)
         self._state = start_state
         self.run_search_count = 0
+        self.activate_calls = 0
 
     def focused(self):
         return self._focused
+
+    def activate(self):
+        self.activate_calls += 1
+        self._focused = True   # simulate the foreground switch succeeding
 
     def screen(self):
         return self._state
@@ -139,6 +144,24 @@ def test_real_run_buys_and_collects():
     assert s.run() == "max_cars"
     assert s.bought == 1
     assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
+
+
+def test_auto_focus_brings_game_forward_then_runs():
+    # Forza not foreground at start -> with auto_focus the snipe re-focuses it and proceeds,
+    # instead of sitting paused (the "不会动" bug when the GUI/another window was on top).
+    io = FakeIO(focused=False, outcome="bought")
+    s = _sniper(io, dry_run=False, max_cars=1, auto_focus=True)
+    assert s.run() == "max_cars"
+    assert io.activate_calls >= 1
+    assert s.bought == 1
+
+
+def test_no_auto_focus_pauses_when_unfocused():
+    io = FakeIO(focused=False)
+    s = _sniper(io, dry_run=False, max_cars=1, max_minutes=0.02, auto_focus=False)
+    s.run()
+    assert io.activate_calls == 0
+    assert s.bought == 0
 
 
 def test_buys_a_listing_already_up():

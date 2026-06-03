@@ -87,6 +87,7 @@ class AuctionSniper:
         clock=time.monotonic,
         sleeper=time.sleep,
         stop_event=None,
+        auto_focus: bool = True,
     ):
         self.io = io
         self.dry_run = dry_run
@@ -97,12 +98,29 @@ class AuctionSniper:
         self.clock = clock
         self.sleeper = sleeper
         self._stop = stop_event
+        self.auto_focus = auto_focus
         self.bought = 0
         self.searches = 0
         self.started_at = None
+        self._refocus_logged = False
 
     def _stopped(self) -> bool:
         return self._stop is not None and self._stop.is_set()
+
+    def _ensure_focus(self) -> bool:
+        """The snipe only presses while Forza is the foreground window (safety). If it isn't
+        and auto_focus is on, bring it to the front (a normal foreground switch -- no inject,
+        no fake-focus) so the snipe keeps running while you look at the GUI. Returns whether
+        Forza is foreground after the attempt."""
+        if self.io.focused():
+            return True
+        if self.auto_focus and hasattr(self.io, "activate"):
+            if not self._refocus_logged:
+                self.on_log("抢车：Forza 不在前台,正自动切回(开着别的窗口也能跑;按停止可中止)。")
+                self._refocus_logged = True
+            self.io.activate()
+            self.sleeper(0.4)
+        return self.io.focused()
 
     def _wait_for(self, tags, timeout: float):
         """Poll until the screen is one of `tags`, or timeout. Time while not focused does
@@ -111,7 +129,7 @@ class AuctionSniper:
         while self.clock() < deadline:
             if self._stopped():
                 return None
-            if not self.io.focused():
+            if not self._ensure_focus():
                 self.sleeper(0.3)
                 deadline += 0.3  # don't let pause eat the budget
                 continue
@@ -131,7 +149,7 @@ class AuctionSniper:
         auction-house menu (ESC only to 搜寻, never out to the open world, which would force a
         multi-second reload). A tight filter (exact model + 最高买断价) makes any result the
         target, so a hit is a 1-2 press buy-out."""
-        if not self.io.focused():
+        if not self._ensure_focus():
             return "recovered"
         s = self.io.screen()
         if s == BUYOUT_CONFIRM:
@@ -305,6 +323,15 @@ class AuctionIO:
             return focus.is_foreground(self.title)
         except Exception:
             return True
+
+    def activate(self) -> None:
+        """Bring Forza to the foreground (a normal foreground switch -- no inject/fake-focus),
+        so the snipe keeps running even while the GUI/another window is on top."""
+        try:
+            import focus
+            focus.activate_window(title_substr=self.title)
+        except Exception:
+            pass
 
     def screen(self) -> str:
         tag = classify_auction_screen(self._look())
