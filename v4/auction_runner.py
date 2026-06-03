@@ -29,6 +29,7 @@ from v3.buying_ui import (
     detect_auction_won,
     detect_bid_confirm,
     detect_buyout_confirm,
+    detect_buyout_success,
     detect_network_warning,
 )
 
@@ -345,60 +346,79 @@ class AuctionIO:
         self.press("enter")
 
     def confirm_buyout(self) -> str:
-        """Press 嗯 (default-focused) on the ALREADY-VERIFIED 买断 dialog, then read the
-        outcome. REFINE-LIVE: success/failure strings nailed against real post-buy frames."""
+        """Press 嗯 (default-focused) on the ALREADY-VERIFIED 买断 dialog, then wait for the
+        outcome. Success signal (captured live) is the 买断成功 popup ('您可以在我的竞价页面
+        领取该车辆'); the car is then paid for and parked in 我的竞价. collect() dismisses it."""
         self.press("enter")
-        self._sleep(0.4)
-        info = detect_buyout_confirm(self._look())
-        if info["failed"]:
-            return "failed"
-        if not info["visible"]:
-            return "bought"   # dialog gone, no failure marker -> purchased
-        return "failed"       # still showing a confirm shape -> uncertain; never re-press
+        for _ in range(30):                          # buy can take a few seconds to settle
+            text = self._look()
+            if detect_buyout_success(text)["visible"] or self._last_selected == "买断成功":
+                return "bought"
+            if detect_buyout_confirm(text)["failed"]:
+                return "failed"
+            # confirm dialog gone + back at a list -> assume the buy went through
+            if (not detect_buyout_confirm(text)["visible"]
+                    and classify_auction_screen(text) in (RESULTS, DETAIL, HOUSE)):
+                return "bought"
+            self._sleep(0.3)
+        return "bought"   # 嗯 was pressed on a verified buy-out; collect() will settle
 
     def collect(self) -> None:
-        """Complete the in-game collect flow after a winning buy-out (captured live):
-        拍卖完成/中标 + 领取车辆 --A--> '正在领取...' --> '已加入您的车库' --A(确定)--> --B--> results.
-        Every step is verified and bounded so it can never spin; all presses here are safe
-        (the auction is already won/paid -- no buy or bid is possible)."""
-        # One patient unified loop -- the buy can take ~tens of seconds to process before the
-        # 领取车辆 prompt renders, so we DON'T assume a fixed step order; we react to whichever
-        # state is on screen: 领取车辆 (A) -> 正在领取... (wait) -> 已加入您的车库 (A 确定) ->
-        # back to a list. pressed_* flags prevent double-presses; all presses here are safe.
-        pressed_collect = False
-        for i in range(60):
+        """Settle the game after a buy-out. The IMMEDIATE post-buy popup is 买断成功
+        ('您可以在我的竞价页面领取该车辆') -> press 确定 to clear it back to the results list (the
+        car is paid and parked in 我的竞价 for a later 领取). Also handles an in-place 领取车辆 /
+        已加入车库 flow if one is shown. Bounded so it can never spin; all presses here are safe
+        (the car is already paid -- no buy or bid is possible)."""
+        for i in range(40):
             text = self._look()
-            self._dbg(f"  [收{i}] 选中={self._last_selected!r} OCR: {text[:130]}")
-            col = detect_auction_collected(text)
-            if col["done"]:
-                self._dbg("  [收] 已加入车库 -> 确定")
+            self._dbg(f"  [收{i}] 选中={self._last_selected!r} OCR: {text[:120]}")
+            if detect_buyout_success(text)["visible"] or self._last_selected == "买断成功":
+                self._dbg("  [收] 买断成功 -> 确定")
                 self.press("enter")                     # A -> 确定
                 self._sleep(0.4)
                 break
+            if classify_auction_screen(text) in (RESULTS, SEARCH, HOUSE):
+                break                                   # already back at a list
+            if self._can_collect(text) or detect_auction_collected(text)["visible"]:
+                self._collect_won_car()                 # in-place 领取车辆 flow (rare)
+                break
+            self._sleep(0.2)
+        # settle to a list (gentle: at most 3 B, stop at the first list)
+        for _ in range(3):
+            if classify_auction_screen(self._look()) in (RESULTS, SEARCH, HOUSE):
+                return
+            self.press("esc")
+
+    def _collect_won_car(self) -> None:
+        """Deferred collect (from 我的竞价 / an in-place won-detail): 拍卖完成/中标 + 领取车辆
+        --A--> 正在领取... --> 已加入您的车库 --A(确定)-->. The 领取车辆 prompt is detected via
+        selected_item too (OCR-drift proof). All presses are safe (the car is already paid)."""
+        pressed_collect = False
+        for i in range(40):
+            text = self._look()
+            self._dbg(f"  [领{i}] 选中={self._last_selected!r} OCR: {text[:120]}")
+            col = detect_auction_collected(text)
+            if col["done"]:
+                self._dbg("  [领] 已加入车库 -> 确定")
+                self.press("enter")                     # A -> 确定
+                self._sleep(0.4)
+                return
             if col["collecting"]:
                 self._sleep(0.2)                        # 正在领取... -> wait
                 continue
             if self._can_collect(text):
                 if not pressed_collect:
-                    self._dbg("  [收] 领取车辆")
+                    self._dbg("  [领] 领取车辆")
                     self.press("enter")                 # A -> 领取车辆
                     pressed_collect = True
                     self._sleep(0.5)
                 continue
-            # no 领取车辆 prompt, not loading, not the success popup:
             if pressed_collect:
-                # we pressed 领取车辆 and the prompt is gone -> the car is collected (the
-                # success popup can be brief). One 确定 (A) clears any lingering popup; A on
-                # the won-detail behind it is a no-op (its footer has no Enter action).
-                self._dbg("  [收] 领取后提示消失,视为已领取 -> 确定")
+                # 领取车辆 pressed and the prompt is gone -> collected (success popup can be
+                # brief). One 确定 (A) clears any lingering popup; A on the won-detail is a no-op.
+                self._dbg("  [领] 领取后提示消失,视为已领取 -> 确定")
                 self.press("enter")
-                break
-            tag = classify_auction_screen(text)
-            if tag in (RESULTS, SEARCH, HOUSE):
-                return                                  # nothing to collect (already a list)
-            self._sleep(0.2)
-        # gentle settle to a list (at most 3 B; never back clean out of the auction house)
-        for _ in range(3):
-            if classify_auction_screen(self._look()) in (RESULTS, SEARCH, HOUSE):
                 return
-            self.press("esc")
+            if classify_auction_screen(text) in (RESULTS, SEARCH, HOUSE):
+                return
+            self._sleep(0.2)

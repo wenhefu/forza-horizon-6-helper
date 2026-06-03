@@ -445,6 +445,16 @@ def detect_network_warning(ocr_text: str) -> dict:
     return {"visible": visible}
 
 
+def detect_buyout_success(ocr_text: str) -> dict:
+    """The IMMEDIATE post-buy popup after pressing 嗯 on the 买断 confirm (captured live):
+    '买断成功。您可以在“我的竞价”页面领取该车辆' + 确定. This is the buy's success signal --
+    the car is paid for and parked in 我的竞价 to be collected later. Press 确定 (A) to clear
+    it and return to the results list. Distinct from the 买断 CONFIRM (是否确定要买断)."""
+    text = ocr_text or ""
+    visible = "买断成功" in text
+    return {"visible": visible}
+
+
 def detect_auction_won(ocr_text: str) -> dict:
     """After a winning buy-out, the listing detail shows '拍卖完成 / 中标' and a 领取车辆
     (collect-vehicle) button. Pressing A on it collects the car into the garage. This is

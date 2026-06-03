@@ -11,6 +11,7 @@ from v3.buying_ui import (
     detect_auction_won,
     detect_bid_confirm,
     detect_buyout_confirm,
+    detect_buyout_success,
     detect_network_warning,
 )
 
@@ -84,6 +85,15 @@ def test_network_warning_detected():
 WON = "拍卖详情 | 车辆详情 | PORTOFINO '18 | 2018 法拉利 | 史诗 | S1 714 | 马力 441 千瓦 | 扭矩 760 牛米 | 拍卖完成 | 中标 | 领取车辆 | 返回"
 COLLECTING = "领取车辆 | 正在领取您的车辆。请稍候......"
 COLLECTED = "领取车辆 | 您已成功领取本车辆。该车辆已加入您的车库。 | 确定"
+
+
+def test_buyout_success_popup():
+    # The real immediate post-buy popup (captured live), distinct from the 买断 CONFIRM.
+    ok = "买断成功 | 买断成功。您可以在“我的竞价”页面领取该车辆 | 确定"
+    assert detect_buyout_success(ok)["visible"]
+    assert not detect_buyout_success(BUYOUT_CONFIRM)["visible"]   # 是否确定要买断 != 买断成功
+    assert not detect_buyout_success(RESULTS)["visible"]
+    assert not detect_buyout_success("")["visible"]
 
 
 def test_auction_won_and_collected():

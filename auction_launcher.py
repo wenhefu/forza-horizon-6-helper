@@ -111,14 +111,18 @@ def main():
     )
     try:
         if mode == "collect":
-            # collect a pending won car (the 领取车辆 / car_preview screen). Free.
+            # Settle a post-buy popup (买断成功 -> 确定) or collect a pending won car
+            # (领取车辆 -> 已加入车库). Free. io.collect() handles both.
+            from v3.buying_ui import detect_buyout_success
             seen = io.screen()
             _log(f"当前识别：{seen} 选中={io._last_selected!r}")
-            if not io._can_collect():
-                _log("当前不在『领取车辆』画面(中标待领取)。请把待领取的车打开,出现「领取车辆」再试。")
+            has_success = (detect_buyout_success(io._last_text)["visible"]
+                           or io._last_selected == "买断成功")
+            if not (io._can_collect() or has_success):
+                _log("当前没有待处理的『买断成功』或『领取车辆』。")
                 return
             io.collect()
-            _log("领取流程结束。")
+            _log("收尾流程结束。")
             return
         # Guard: only act when actually in the auction house (no stray B-presses elsewhere).
         auction_tags = {"results", "search", "detail", "buyout_confirm", "bid_confirm"}
