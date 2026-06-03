@@ -34,6 +34,20 @@ BUY_OCR_MIN_INTERVAL_SECONDS = 1.5
 BUY_OCR_MIN_CONFIDENCE = 0.45
 BUY_OCR_LOG_ITEMS = True
 
+# Auction sniper speed levers -- OFF by default. The proven path stays the default until each
+# is calibrated against the LIVE auction (the server was down at authoring), and both fall back
+# safely. Flip on via the GUI checkboxes to live-test.
+#   AUCTION_FAST_BUYOUT: open the buy-out via the Y 拍卖选项 quick-menu, skipping the ~3-5s
+#     车辆详情 page (the step that loses fast listings). Falls back to the validated Enter ->
+#     车辆详情 path if the quick-menu isn't recognized; the confirm is still verified so it can
+#     never place a bid.
+#   AUCTION_RECOGNIZE_ON_CHANGE: in the watch/re-search loop, skip the ~0.7s OCR on frames that
+#     are visually unchanged from the last OCR (cheap grayscale frame-diff). Accuracy-safe:
+#     worst case equals today (a changed frame always re-OCRs).
+AUCTION_FAST_BUYOUT = False
+AUCTION_RECOGNIZE_ON_CHANGE = False
+AUCTION_SCR_CHANGE_THRESH = 4.0   # mean-abs grayscale diff above which a frame counts as changed
+
 # EventLab nav: when the events grid is still loading (network), the tab bar reads as
 # unknown. Rather than fail fast, V4 nudges toward 我的收藏 and then waits patiently for the
 # list to load -- up to this many seconds of legitimate "still loading" before giving up the

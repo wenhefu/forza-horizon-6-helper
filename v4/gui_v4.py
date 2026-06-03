@@ -76,6 +76,11 @@ class V4App:
         self._sell_stop = threading.Event()
         # auction snipe (Phase C): buy out the first listing of a search the USER pre-sets
         self.snipe_max = tk.StringVar(value="1")     # max cars to buy out per run
+        # Experimental speed levers (OFF by default; need a live test before trusting -- the
+        # validated path runs when these are off). 快速买断=Y quick-menu skips the detail page;
+        # 变化才识别=skip OCR on unchanged frames in the watch loop.
+        self.snipe_fast = tk.BooleanVar(value=False)
+        self.snipe_roc = tk.BooleanVar(value=False)
         self._snipe_thread = None
         self._snipe_stop = threading.Event()
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
@@ -244,8 +249,15 @@ class V4App:
         self.snipe_stop_btn = ttk.Button(sniperow, text="停止抢车", command=self.on_snipe_stop,
                                          style="App.TButton", state="disabled")
         self.snipe_stop_btn.pack(side="left")
+        # Experimental speed toggles (OFF by default; flip on to live-test when the auction's up).
+        snipefx = tk.Frame(body, bg=COLORS["surface"])
+        snipefx.grid(row=4, column=0, columnspan=4, sticky="we", pady=(2, 0))
+        ttk.Checkbutton(snipefx, text="快速买断(Y菜单·跳详情页·实验)", variable=self.snipe_fast,
+                        style="App.TCheckbutton").pack(side="left")
+        ttk.Checkbutton(snipefx, text="变化才识别(更快·实验)", variable=self.snipe_roc,
+                        style="App.TCheckbutton").pack(side="left", padx=(12, 0))
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
-                 font=FONT_SMALL, anchor="w").grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
+                 font=FONT_SMALL, anchor="w").grid(row=5, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
     def _build_log(self, shell):
         card = self._card(shell, "运行日志")
@@ -419,6 +431,10 @@ class V4App:
             self._log("抢车[空跑]：只走到看到『买断』就退出,绝不购买(零风险验证一遍流程)。")
         else:
             self._log(f"抢车[真买]：最多买 {max_cars} 辆,只买断不出价(误入竞价框会停手);随时按『停止抢车』。")
+        if self.snipe_fast.get():
+            self._log("抢车：已开启『快速买断』(Y菜单跳详情页·实验)——若快捷菜单没识别到会自动退回稳妥路径。")
+        if self.snipe_roc.get():
+            self._log("抢车：已开启『变化才识别』(画面没变就不重复OCR·实验)。")
 
         def worker():
             import time as _t
@@ -441,7 +457,9 @@ class V4App:
                     pad.tap("a", hold=0.12)
                     _t.sleep(1.0)
                 io = AuctionIO(self.runner.recognizer, pad, title=config.GAME_TITLE,
-                               on_log=self._log, stop_event=self._snipe_stop)
+                               on_log=self._log, stop_event=self._snipe_stop,
+                               fast_buyout=self.snipe_fast.get(),
+                               recognize_on_change=self.snipe_roc.get())
                 # Guard: only act when we're actually in the auction house, so a mis-click
                 # can't send stray B-presses wandering through unrelated menus.
                 auction_tags = {"results", "search", "detail", "buyout_confirm", "bid_confirm"}

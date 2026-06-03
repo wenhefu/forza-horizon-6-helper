@@ -20,6 +20,7 @@ import random
 import re
 import time
 
+import config
 from v3.buying_ui import (
     detect_auction_collected,
     detect_auction_detail,
@@ -44,6 +45,7 @@ _BUYOUT_PRICE_RE = re.compile(r"买断[^\d]{0,8}(\d{1,3}(?:,\d{3})+)")
 SEARCH = "search"
 RESULTS = "results"
 DETAIL = "detail"
+OPTIONS = "options"          # the Y 拍卖选项 quick-menu (竞价/买断) -- the FAST buy-out entry
 HOUSE = "house"
 BUYOUT_CONFIRM = "buyout_confirm"
 BID_CONFIRM = "bid_confirm"
@@ -54,15 +56,18 @@ def classify_auction_screen(ocr_text: str) -> str:
     """Map OCR text to one auction screen tag.
 
     Priority (most-specific first): buy-out confirm > BID confirm > single-listing detail >
-    results list > search > house. The two confirm dialogs are checked first and kept
-    distinct so the snipe can recognise -- and refuse -- the BID dialog; detail is checked
-    before results because both carry '拍卖详情' (detail adds the 车辆详情 pager + car stats)."""
+    Y options quick-menu > results list > search > house. The two confirm dialogs are checked
+    first and kept distinct so the snipe can recognise -- and refuse -- the BID dialog; detail
+    is checked before results/options because both carry '拍卖详情'/竞价/买断 tokens (detail adds
+    the 车辆详情 pager + car stats; the quick-menu adds neither)."""
     if detect_buyout_confirm(ocr_text)["visible"]:
         return BUYOUT_CONFIRM
     if detect_bid_confirm(ocr_text)["visible"]:
         return BID_CONFIRM
     if detect_auction_detail(ocr_text)["visible"]:
         return DETAIL
+    if detect_auction_options(ocr_text)["visible"]:
+        return OPTIONS
     if detect_auction_results(ocr_text)["visible"]:
         return RESULTS
     if detect_auction_search(ocr_text)["visible"]:
@@ -296,6 +301,8 @@ class AuctionIO:
         settle: float = 0.55,
         verbose: bool = False,
         stop_event=None,
+        fast_buyout: bool | None = None,
+        recognize_on_change: bool | None = None,
     ):
         self.recognizer = recognizer
         self.pad = pad
@@ -308,6 +315,16 @@ class AuctionIO:
         self._stop = stop_event
         self._last_text = ""
         self._last_selected = ""
+        # Speed levers (default to config; OFF unless the GUI/caller flips them on for a live test).
+        self.fast_buyout = (
+            bool(getattr(config, "AUCTION_FAST_BUYOUT", False)) if fast_buyout is None else bool(fast_buyout)
+        )
+        self.recognize_on_change = (
+            bool(getattr(config, "AUCTION_RECOGNIZE_ON_CHANGE", False))
+            if recognize_on_change is None else bool(recognize_on_change)
+        )
+        self._scr_cache_tag = None     # last screen() tag (for recognize-on-change)
+        self._scr_cache_gray = None    # the cheap gray frame that tag was OCR'd from
 
     def _dbg(self, msg: str) -> None:
         if self.verbose:
@@ -351,8 +368,44 @@ class AuctionIO:
         snipe should just wait rather than navigate into a dead screen."""
         return detect_network_warning(self._last_text)["visible"]
 
+    def _cheap_gray(self):
+        """A tiny downscaled-grayscale grab of Forza's client area, for the recognize-on-change
+        frame-diff (no OCR). Reuses the helpers validated for the buy/nav settle. Returns None
+        when the window/capture isn't available (then we just OCR -- never worse than today)."""
+        try:
+            import focus
+            from buy_car_runner import BuyCarRunner
+            from window_capture import capture_client
+            hwnd = focus.find_window(self.title)
+            if not hwnd:
+                return None
+            return BuyCarRunner._small_gray(capture_client(hwnd))
+        except Exception:
+            return None
+
     def screen(self) -> str:
+        # Recognize-on-change: if the frame is visually unchanged from the last one we OCR'd,
+        # reuse that screen tag and skip the ~0.7s OCR. Accuracy-safe -- a changed frame (or no
+        # cheap grab) always falls through to a fresh OCR, so worst case equals today.
+        gray = self._cheap_gray() if self.recognize_on_change else None
+        if (
+            self.recognize_on_change
+            and self._scr_cache_tag is not None
+            and gray is not None
+            and self._scr_cache_gray is not None
+        ):
+            try:
+                from buy_car_runner import BuyCarRunner
+                thresh = float(getattr(config, "AUCTION_SCR_CHANGE_THRESH", 4.0))
+                if BuyCarRunner._frame_diff(self._scr_cache_gray, gray) <= thresh:
+                    self._dbg(f"  [看·跳] 画面未变,沿用 识别={self._scr_cache_tag}")
+                    return self._scr_cache_tag
+            except Exception:
+                pass
         tag = classify_auction_screen(self._look())
+        if self.recognize_on_change:
+            self._scr_cache_tag = tag
+            self._scr_cache_gray = gray if gray is not None else self._cheap_gray()
         self._dbg(f"  [看] 识别={tag}  OCR: {self._last_text[:120]}")
         return tag
 
@@ -410,25 +463,73 @@ class AuctionIO:
             self.on_log(f"抢车：目标买断价 CR {m.group(1)}。")
 
     def open_buyout(self) -> bool:
-        """选择/Enter on the focused results card -> 车辆详情 (竞价 focused, 买断 below).
+        """Open the action UI on the focused results card so 买断 can be selected.
 
-        This is the path VALIDATED live (3 buy-outs). The faster Y quick-menu is deferred
-        until it can be confirmed on the live auction -- when its menu wasn't recognised it
-        risked an A landing on the 竞价/bid row, so reliability first."""
+        Validated path (default): Enter (选择) -> 车辆详情 (竞价 focused TOP, 买断 BELOW). This is
+        what was validated live (3 buy-outs).
+
+        Fast path (fast_buyout=True): Y -> 拍卖选项 quick-menu, skipping the ~3-5s 车辆详情 load
+        that loses fast listings. If the quick-menu isn't cleanly recognized, it closes it (B)
+        and FALLS BACK to the validated Enter path -- so reliability never hinges on the fast
+        menu. Returns True when on an action screen (OPTIONS/DETAIL, or a confirm Y opened
+        directly). The eventual confirm is still verified by the caller (BID dialog -> abort),
+        so this can never place a bid. REFINE-LIVE: quick-menu tokens/layout confirmed live."""
+        if self.fast_buyout:
+            self.press("y")                          # 拍卖选项 quick-menu (fast)
+            for _ in range(6):
+                if self._stopped():
+                    return False
+                tag = classify_auction_screen(self._look())
+                self._dbg(f"  [开·快] Y 后 识别={tag}")
+                if tag in (OPTIONS, DETAIL, BUYOUT_CONFIRM, BID_CONFIRM):
+                    self._log_buyout_price()
+                    return True
+            # Y didn't yield a recognized action screen -> close it and fall back to Enter.
+            self.press("esc")
+            if classify_auction_screen(self._look()) != RESULTS:
+                return False
+            self._dbg("  [开·快] 快捷菜单未识别,已回结果页,改用『选择→车辆详情』。")
         self.press("enter")                          # 选择 -> 车辆详情
         for _ in range(8):
             if self._stopped():
                 return False
             tag = classify_auction_screen(self._look())
             self._dbg(f"  [开] 选择后 识别={tag}")
-            if tag == DETAIL:
+            if tag in (DETAIL, OPTIONS, BUYOUT_CONFIRM, BID_CONFIRM):
                 self._log_buyout_price()
                 return True
         return classify_auction_screen(self._last_text) == DETAIL
 
     def select_buyout(self, delay: float) -> None:
-        """ONE Down (竞价 -> 买断), a settle so it registers, then Enter to open the confirm.
-        Exactly one dpad_down, never retried: a retried Down could overshoot back onto 竞价."""
+        """Open the 买断 confirm from the current action screen.
+
+        车辆详情 (validated): ONE Down (竞价 -> 买断), a settle, then Enter. Exactly one dpad_down,
+        never retried -- a retried Down could overshoot back onto 竞价.
+
+        Y 拍卖选项 quick-menu: ensure 买断 is the focused row (bounded Down, checking the focus),
+        then Enter. SAFETY: on the quick-menu it ONLY presses Enter when 买断 is the confirmed
+        focus; if it can't confirm that, it backs out without pressing Enter. And the caller
+        verifies the resulting dialog is the buy-out (BID -> abort), so a bid is never placed.
+        If a confirm is already open (Y jumped straight to it), do nothing."""
+        scr = classify_auction_screen(self._look())
+        if scr in (BUYOUT_CONFIRM, BID_CONFIRM):
+            return                                   # confirm already open; caller's gate handles it
+        if scr == OPTIONS:
+            for _ in range(4):
+                if self._stopped():
+                    return
+                if "买断" in str(self._last_selected):
+                    break
+                self.press("down")
+                self._look()
+            if "买断" not in str(self._last_selected):
+                self._dbg("  [选·快] 快捷菜单未确认焦点在『买断』,放弃按 Enter(改退出)。")
+                self.press("esc")                    # never confirmed 买断 focus -> abort, no Enter
+                return
+            self._sleep(max(0.0, float(delay)))
+            self.press("enter")                      # 买断 -> its confirm
+            return
+        # 车辆详情 (or any uncertain action screen): the validated ONE Down -> Enter.
         self.press("down")
         self._sleep(max(0.0, float(delay)))
         self.press("enter")
