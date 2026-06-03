@@ -75,6 +75,7 @@ def main():
     ap.add_argument("--probe", action="store_true", help="只读探针，不按键(默认)")
     ap.add_argument("--dry-run", action="store_true", help="空跑：走流程但绝不买")
     ap.add_argument("--buy", action="store_true", help="真买！会花积分")
+    ap.add_argument("--collect", action="store_true", help="只领取待领取的中标车(不花积分)")
     ap.add_argument("--count", type=int, default=8, help="探针读屏次数")
     ap.add_argument("--once", action="store_true", help="只跑一次 run_once 就停(首跑用)")
     ap.add_argument("--verbose", action="store_true", help="逐步打印每次读屏/按键")
@@ -82,7 +83,8 @@ def main():
     ap.add_argument("--max-minutes", type=float, default=20.0)
     args = ap.parse_args()
 
-    mode = "buy" if args.buy else ("dry" if args.dry_run else "probe")
+    mode = ("buy" if args.buy else "collect" if args.collect
+            else "dry" if args.dry_run else "probe")
     rec = build_recognizer()
 
     try:
@@ -107,23 +109,28 @@ def main():
         max_minutes=args.max_minutes,
         on_log=_log,
     )
-    # Guard: only act when actually in the auction house (no stray B-presses elsewhere).
-    auction_tags = {"results", "search", "detail", "buyout_confirm", "bid_confirm"}
-    seen = None
-    for _ in range(3):
-        seen = io.screen()
-        if seen in auction_tags:
-            break
-    _log(f"当前识别：{seen}")
-    if seen not in auction_tags:
-        _log("不在拍卖场界面(或被弹窗挡住),为安全起见不动作。请进 拍卖场→搜索拍卖→确认,停在结果页再试。")
-        try:
-            pad.neutral()
-        except Exception:
-            pass
-        return
-
     try:
+        if mode == "collect":
+            # collect a pending won car (the 领取车辆 / car_preview screen). Free.
+            seen = io.screen()
+            _log(f"当前识别：{seen} 选中={io._last_selected!r}")
+            if not io._can_collect():
+                _log("当前不在『领取车辆』画面(中标待领取)。请把待领取的车打开,出现「领取车辆」再试。")
+                return
+            io.collect()
+            _log("领取流程结束。")
+            return
+        # Guard: only act when actually in the auction house (no stray B-presses elsewhere).
+        auction_tags = {"results", "search", "detail", "buyout_confirm", "bid_confirm"}
+        seen = None
+        for _ in range(3):
+            seen = io.screen()
+            if seen in auction_tags:
+                break
+        _log(f"当前识别：{seen}")
+        if seen not in auction_tags:
+            _log("不在拍卖场界面(或被弹窗挡住),为安全起见不动作。请进 拍卖场→搜索拍卖→确认,停在结果页再试。")
+            return
         if mode == "buy":
             _log(f"!!! 真买模式：最多 {args.max_cars} 辆。3 秒后开始，Ctrl+C 取消。")
             time.sleep(3.0)
