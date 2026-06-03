@@ -102,7 +102,8 @@ class V4Mode3Runner:
             stall_seconds=self.watchdog_seconds,
         )
         self._farm_mode = "vision"
-        self.nav_mode = "v5"  # event-driven V5Navigator (default); "v4" = legacy nav fallback
+        self.nav_mode = "v4"  # default: proven full-path V4 nav. "v5" = faster event-driven
+        # auto-nav, but it can short-circuit to a false race_menu (skip EventLab) -> opt-in only.
         self.report = V4RunReport(datetime.now(timezone.utc).astimezone().isoformat(), title)
         self._step_index = 0
 
