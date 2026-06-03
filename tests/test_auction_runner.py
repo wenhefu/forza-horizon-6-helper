@@ -167,6 +167,31 @@ def test_stop_event_halts():
     assert io.calls == []
 
 
+def test_starting_on_buyout_confirm_buys_in_real_run():
+    # A prior attempt left the 买断 confirm open (B can't dismiss it). In a real run we
+    # complete it (A on 嗯) rather than getting stuck.
+    io = FakeIO(start_state=BUYOUT_CONFIRM, outcome="bought")
+    s = _sniper(io, dry_run=False, max_cars=1)
+    assert s.run_once() == "bought"
+    assert io.calls == ["confirm_buyout", "collect"]
+
+
+def test_starting_on_buyout_confirm_dryrun_does_not_buy():
+    io = FakeIO(start_state=BUYOUT_CONFIRM)
+    s = _sniper(io, dry_run=True, max_cars=1)
+    assert s.run_once() == "dry_seen"
+    assert "confirm_buyout" not in io.calls
+
+
+def test_starting_on_bid_confirm_is_never_touched():
+    # B can't dismiss it and Down+A risks bidding -> refuse to touch; user backs out manually.
+    io = FakeIO(start_state=BID_CONFIRM)
+    s = _sniper(io, dry_run=False, max_cars=1)
+    assert s.run_once() == "recovered"
+    assert io.calls == []
+    assert io.presses == []
+
+
 def test_bid_confirm_aborts_without_buying():
     # If the Down drops and select lands on the BID confirm, the snipe must back out and
     # NEVER confirm -- even in a real (non-dry) run that otherwise would buy.

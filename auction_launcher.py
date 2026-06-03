@@ -48,13 +48,15 @@ def build_recognizer():
 def probe(rec, count):
     _log(f"探针模式：只读 OCR ×{count}，不按任何键。请把游戏停在 拍卖场结果页。")
     for i in range(count):
-        _, text = _ocr_text(rec)
+        snap, text = _ocr_text(rec)
         tag = classify_auction_screen(text)
         net = detect_network_warning(text)["visible"]
         price = bool(_PRICE_RE.search(text))
         fg = focus.is_foreground(config.GAME_TITLE)
-        _log(f"#{i + 1} 前台={fg} 识别={tag} 有价格={price} 断网={net}")
-        _log(f"     OCR: {text[:170]}")
+        sel = getattr(snap.v3, "selected_item", "")
+        scr = getattr(snap.v3, "screen", "")
+        _log(f"#{i + 1} 前台={fg} 识别={tag} v3屏={scr} 选中={sel!r} 有价格={price} 断网={net}")
+        _log(f"     OCR: {text[:200]}")
         time.sleep(0.8)
 
 

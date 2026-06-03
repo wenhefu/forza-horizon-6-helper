@@ -138,13 +138,32 @@ class AuctionSniper:
         if not self.io.focused():
             return "recovered"
         s = self.io.screen()
+        if s == BUYOUT_CONFIRM:
+            # Sitting on a VERIFIED buy-out confirm (e.g. a prior attempt was interrupted).
+            # This dialog ignores B/Esc -- the only exits are A on 嗯 (buy) or navigating to 不.
+            if self.dry_run:
+                self.on_log("抢车[空跑]：当前停在『买断』确认框(遗留),未购买(空跑)。")
+                return "dry_seen"
+            outcome = self.io.confirm_buyout()    # A on 嗯 -> buy
+            if outcome == "bought":
+                self.io.collect()
+                return "bought"
+            return "failed"
+        if s == BID_CONFIRM:
+            # On the BID confirm: B can't dismiss it and Down+A risks confirming the bid, so
+            # refuse to touch it -- report and let the user back out via 不 manually.
+            self.on_log("抢车：当前停在『竞价』确认框(危险),已停手,请手动选『不』退出。")
+            return "recovered"
+        if s == DETAIL:
+            self.io.press("esc")              # a backed-out detail view -> one step to results
+            s = self._wait_for({RESULTS}, 3.0) or self.io.screen()
         if s == SEARCH:
             self.io.press("enter")            # 确认 -> run the pre-set search
             if self._wait_for({RESULTS}, 6.0) != RESULTS:
                 return "no_cars"
             s = RESULTS
         if s != RESULTS:
-            self._esc_toward_search()         # detail/confirm/house/unknown -> back out, retry
+            self._esc_toward_search()         # confirm/house/unknown -> back out, retry
             return "recovered"
         if not self.io.has_listing():
             return "no_cars"                  # empty/loading/disconnected -> wait, retry
