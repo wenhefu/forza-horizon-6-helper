@@ -69,6 +69,7 @@ class V4App:
         self.use_v5_nav = tk.BooleanVar(value=False)
         # sell-duplicates (Phase B): clear junk 22B copies, keep the favorited farm car
         self.sell_max = tk.StringVar(value="80")
+        self.sell_model = tk.StringVar(value="22B")  # car-name substring to clear dups of
         self._sell_thread = None
         self._sell_stop = threading.Event()
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
@@ -201,7 +202,9 @@ class V4App:
         # or the pause menu; it navigates the rest.
         sellrow = tk.Frame(body, bg=COLORS["surface"])
         sellrow.grid(row=2, column=0, columnspan=4, sticky="we", pady=(8, 0))
-        tk.Label(sellrow, text="清理重复22B(留收藏/在驾驶的那辆):", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).pack(side="left")
+        tk.Label(sellrow, text="清理重复车(留收藏/在驾驶的):", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).pack(side="left")
+        tk.Label(sellrow, text="车名含", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
+        ttk.Entry(sellrow, textvariable=self.sell_model, width=10).pack(side="left")
         tk.Label(sellrow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
         ttk.Entry(sellrow, textvariable=self.sell_max, width=5).pack(side="left")
         tk.Label(sellrow, text="辆", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(2, 8))
@@ -303,8 +306,9 @@ class V4App:
             max_sell = max(1, int(self._read_float(self.sell_max, 80.0)))
         except Exception:
             max_sell = 80
+        model = (self.sell_model.get() or "").strip() or "22B"
         self._sell_stop.clear()
-        self._log(f"开始清理重复 22B：最多删 {max_sell} 辆,跳过收藏/正在驾驶的那辆,删前核对确认框(可随时按停止)。")
+        self._log(f"开始清理重复「{model}」：最多删 {max_sell} 辆,跳过收藏/正在驾驶的那辆,删前核对确认框(可随时按停止)。")
         self._log("请先在游戏里打开「我的车辆」(暂停→车辆→更换车辆),或停在 车辆 标签页,再点开始清理。")
 
         def worker():
@@ -330,7 +334,7 @@ class V4App:
                 SellDuplicatesRunner(
                     self.runner.recognizer, pad, dry_run=False, on_log=self._log,
                     stop_event=self._sell_stop,
-                ).run_sell(max_sell=max_sell, target_name="22B")
+                ).run_sell(max_sell=max_sell, target_name=model)
             except Exception as exc:
                 self._log(f"清理重复车出错:{exc}")
             finally:
