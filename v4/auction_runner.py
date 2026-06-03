@@ -129,18 +129,25 @@ class AuctionSniper:
         return self.io.screen() == SEARCH
 
     def run_once(self) -> str:
-        """One snipe attempt. Returns: bought | no_cars | dry_seen | recovered | failed."""
+        """One snipe attempt. Returns: bought | no_cars | dry_seen | recovered | failed.
+
+        If we're already on the results list (where the user leaves the game), buy the
+        focused listing directly -- no re-search, so a stray A can never land on the 搜寻
+        form's dropdowns. Only when sitting ON the 搜寻 screen do we press 确认 to (re)run
+        the pre-set search; any other screen backs out toward a known one and retries."""
         if not self.io.focused():
             return "recovered"
-        if not self._esc_toward_search():
+        s = self.io.screen()
+        if s == SEARCH:
+            self.io.press("enter")            # 确认 -> run the pre-set search
+            if self._wait_for({RESULTS}, 6.0) != RESULTS:
+                return "no_cars"
+            s = RESULTS
+        if s != RESULTS:
+            self._esc_toward_search()         # detail/confirm/house/unknown -> back out, retry
             return "recovered"
-        # run the (pre-set) search
-        self.io.press("enter")
-        if self._wait_for({RESULTS}, 6.0) != RESULTS:
-            return "no_cars"
         if not self.io.has_listing():
-            self.io.press("esc")  # empty/loading/disconnected results -> back out, re-search
-            return "no_cars"
+            return "no_cars"                  # empty/loading/disconnected -> wait, retry
         return self._buy_out_first()
 
     def _buy_out_first(self) -> str:
@@ -227,6 +234,7 @@ class AuctionIO:
         sleep=time.sleep,
         tap_hold: float = 0.12,
         settle: float = 0.55,
+        verbose: bool = False,
     ):
         self.recognizer = recognizer
         self.pad = pad
@@ -235,7 +243,12 @@ class AuctionIO:
         self._sleep = sleep
         self.tap_hold = tap_hold
         self.settle = settle
+        self.verbose = verbose
         self._last_text = ""
+
+    def _dbg(self, msg: str) -> None:
+        if self.verbose:
+            self.on_log(msg)
 
     # --- sensing (full-res OCR, mirrors the stable sell runner) ---------------
     def _look(self) -> str:
@@ -251,12 +264,15 @@ class AuctionIO:
             return True
 
     def screen(self) -> str:
-        return classify_auction_screen(self._look())
+        tag = classify_auction_screen(self._look())
+        self._dbg(f"  [看] 识别={tag}  OCR: {self._last_text[:120]}")
+        return tag
 
     # --- input (jittered, anti-pattern timing learned from the OSS sniper) ----
     def press(self, name: str) -> None:
         from gamepad import BUTTON_NAMES
         btn = self._BTN.get(name, name)
+        self._dbg(f"  [按] {name} -> {btn}")
         if btn in BUTTON_NAMES:
             self.pad.tap(btn, hold=self.tap_hold)
         self._sleep(self.settle + random.uniform(0.0, 0.12))
@@ -279,7 +295,9 @@ class AuctionIO:
         """选择/Enter on the focused results card -> 车辆详情 (竞价 focused, 买断 below)."""
         self.press("enter")
         for _ in range(8):
-            if classify_auction_screen(self._look()) == DETAIL:
+            tag = classify_auction_screen(self._look())
+            self._dbg(f"  [开] 选择后 识别={tag}")
+            if tag == DETAIL:
                 m = _BUYOUT_PRICE_RE.search(self._last_text)
                 if m:
                     self.on_log(f"抢车：目标买断价 CR {m.group(1)}。")

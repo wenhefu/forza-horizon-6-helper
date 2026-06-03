@@ -74,6 +74,8 @@ def main():
     ap.add_argument("--dry-run", action="store_true", help="空跑：走流程但绝不买")
     ap.add_argument("--buy", action="store_true", help="真买！会花积分")
     ap.add_argument("--count", type=int, default=8, help="探针读屏次数")
+    ap.add_argument("--once", action="store_true", help="只跑一次 run_once 就停(首跑用)")
+    ap.add_argument("--verbose", action="store_true", help="逐步打印每次读屏/按键")
     ap.add_argument("--max-cars", type=int, default=1)
     ap.add_argument("--max-minutes", type=float, default=20.0)
     args = ap.parse_args()
@@ -95,7 +97,7 @@ def main():
     pad = Gamepad()
     time.sleep(0.5)
     dismiss_controller_modal(rec, pad)
-    io = AuctionIO(rec, pad, title=config.GAME_TITLE, on_log=_log)
+    io = AuctionIO(rec, pad, title=config.GAME_TITLE, on_log=_log, verbose=args.verbose)
     sniper = AuctionSniper(
         io,
         dry_run=(mode != "buy"),
@@ -107,8 +109,12 @@ def main():
         if mode == "buy":
             _log(f"!!! 真买模式：最多 {args.max_cars} 辆。3 秒后开始，Ctrl+C 取消。")
             time.sleep(3.0)
-        result = sniper.run()
-        _log(f"结束：{result}（已买 {sniper.bought}，搜索 {sniper.searches} 次）")
+        if args.once:
+            result = sniper.run_once()
+            _log(f"单次结束：{result}")
+        else:
+            result = sniper.run()
+            _log(f"结束：{result}（已买 {sniper.bought}，搜索 {sniper.searches} 次）")
     finally:
         try:
             pad.neutral()

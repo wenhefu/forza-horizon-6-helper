@@ -64,6 +64,7 @@ class FakeIO:
         confirm_shows=True,
         outcome="bought",
         confirm_screen=BUYOUT_CONFIRM,
+        start_state=SEARCH,
     ):
         self.presses = []
         self.calls = []
@@ -72,7 +73,7 @@ class FakeIO:
         self._confirm_shows = confirm_shows
         self._outcome = outcome
         self._confirm_screen = confirm_screen   # what select_buyout lands on (buyout vs BID)
-        self._state = SEARCH
+        self._state = start_state
 
     def focused(self):
         return self._focused
@@ -128,6 +129,17 @@ def test_real_run_buys_and_collects():
     s = _sniper(io, dry_run=False, max_cars=1)
     assert s.run() == "max_cars"
     assert s.bought == 1
+    assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
+
+
+def test_on_results_buys_directly_without_research():
+    # The game is left ON the results list -> buy the focused listing directly; never press
+    # the search/确认 path (no enter before open_buyout).
+    io = FakeIO(start_state=RESULTS, outcome="bought")
+    s = _sniper(io, dry_run=False, max_cars=1)
+    assert s.run() == "max_cars"
+    assert s.bought == 1
+    assert "enter" not in io.presses          # did NOT re-run the search
     assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
 
 
