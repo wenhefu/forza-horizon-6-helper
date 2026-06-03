@@ -453,11 +453,17 @@ def detect_bid_confirm(ocr_text: str) -> dict:
 
 
 def detect_network_warning(ocr_text: str) -> dict:
-    """The online-disconnect banner (拍卖场 is an online feature). When shown, buy-outs fail,
-    so the snipe treats results as unbuyable (pauses/backs out) instead of pressing into a
-    dead dialog. Shape: 注意！ / 连接已断开，请稍后再试 / 返回漫游模式才可接受邀请."""
+    """An online/auction-service-unavailable banner (拍卖场 is online-only). When shown, the
+    auction can't return cars at all, so the snipe just waits instead of pressing into a dead
+    screen. Covers: 连接已断开，请稍后再试 / 返回漫游模式才可接受邀请 / 地平线生活当前不可用 /
+    服务器目前无法使用，请稍后再试 (captured live -- the auction server being down)."""
     text = ocr_text or ""
-    visible = "连接已断开" in text or "请稍后再试" in text
+    visible = (
+        "连接已断开" in text
+        or "请稍后再试" in text
+        or "地平线生活当前不可用" in text
+        or ("服务器" in text and "无法使用" in text)
+    )
     return {"visible": visible}
 
 

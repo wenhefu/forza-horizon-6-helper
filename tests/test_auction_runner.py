@@ -65,7 +65,9 @@ class FakeIO:
         outcome="bought",
         confirm_screen=BUYOUT_CONFIRM,
         start_state=SEARCH,
+        blocked=False,
     ):
+        self._blocked = blocked
         self.presses = []
         self.calls = []
         self._focused = focused
@@ -89,15 +91,20 @@ class FakeIO:
 
     def press(self, btn):
         self.presses.append(btn)
-        if btn == "enter" and self._state == SEARCH:
+        if btn == "enter" and self._state == HOUSE:
+            self._state = SEARCH        # 拍卖场 landing: 搜索拍卖 -> 搜寻
+        elif btn == "enter" and self._state == SEARCH:
             self._state = RESULTS
         elif btn == "esc":
-            self._state = SEARCH
+            self._state = HOUSE         # results/back -> 拍卖场 landing
 
     def run_search(self):
         # fire a fresh query from the 搜寻 config -> results (the re-search step)
         self.run_search_count += 1
         self._state = RESULTS
+
+    def blocked(self):
+        return self._blocked
 
     def has_listing(self):
         return self._has_listing
@@ -172,6 +179,27 @@ def test_buys_a_listing_already_up():
     assert s.run() == "max_cars"
     assert s.bought == 1
     assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
+
+
+def test_server_unavailable_waits_without_navigating():
+    # 拍卖服务器/网络不可用 (服务器目前无法使用 / 请稍后再试) -> just wait + re-read; never press
+    # into a dead screen (and never wander).
+    io = FakeIO(blocked=True)
+    s = _sniper(io, dry_run=False, max_cars=1, max_minutes=0.02)
+    s.run()
+    assert s.bought == 0
+    assert io.calls == []
+    assert "esc" not in io.presses and "enter" not in io.presses
+
+
+def test_re_searches_from_landing_not_idle():
+    # On the 拍卖场 landing (where it used to sit idle): enter 搜索拍卖 -> 搜寻 -> 确认 ->
+    # results -> buy. It must actively re-search from the landing, never just sit there.
+    io = FakeIO(start_state=HOUSE, outcome="bought")
+    s = _sniper(io, dry_run=False, max_cars=1)
+    assert s.run() == "max_cars"
+    assert s.bought == 1
+    assert io.run_search_count >= 1
 
 
 def test_re_searches_while_results_empty():

@@ -103,6 +103,7 @@ class AuctionSniper:
         self.searches = 0
         self.started_at = None
         self._refocus_logged = False
+        self._blocked_logged = False
 
     def _stopped(self) -> bool:
         return self._stop is not None and self._stop.is_set()
@@ -152,6 +153,14 @@ class AuctionSniper:
         if not self._ensure_focus():
             return "recovered"
         s = self.io.screen()
+        if self.io.blocked():
+            # 拍卖服务器/网络暂不可用 (服务器目前无法使用 / 请稍后再试 / 连接已断开). The auction can't
+            # return cars then -- just wait and re-read; never navigate into a dead screen.
+            if not self._blocked_logged:
+                self.on_log("抢车：拍卖服务器/网络暂不可用(『请稍后再试』),自动等待重试中…")
+                self._blocked_logged = True
+            return "recovered"
+        self._blocked_logged = False
         if s == BUYOUT_CONFIRM:
             # Sitting on a VERIFIED buy-out confirm (e.g. a prior attempt was interrupted).
             # This dialog ignores B/Esc -- the only exits are A on 嗯 (buy) or navigating to 不.
@@ -168,30 +177,33 @@ class AuctionSniper:
             # refuse to touch it -- report and let the user back out via 不 manually.
             self.on_log("抢车：当前停在『竞价』确认框(危险),已停手,请手动选『不』退出。")
             return "recovered"
+        # Real re-search loop (mapped live): 拍卖场landing --A(搜索拍卖)--> 搜寻 --A(确认)-->
+        # results --(empty)Back--> landing --> repeat. Each step is a SINGLE press on a KNOWN
+        # screen; UNKNOWN/non-auction screens are never pressed (that's what walked out to free
+        # roam). So it actively re-searches forever without idling and without wandering out.
         if s == RESULTS:
-            # A buyable listing already up -> take it (validated buy + the instant a snipe lands).
             if self.io.has_listing():
-                return self._buy_out_first()
-            # Empty results -> re-search: ONE Back to 搜寻, VERIFIED. If that single Back doesn't
-            # land on 搜寻, DO NOT keep backing out (that's what walked the menu out to free
-            # roam) -- bail and retry next cycle.
-            self.io.press("esc")
-            if self._wait_for({SEARCH}, 2.5) == SEARCH:
-                self.io.run_search()          # 确认 -> fresh query
+                return self._buy_out_first()       # buy a listing that's up
+            self.io.press("esc")                   # empty -> Back toward landing/search
+            self._wait_for({HOUSE, SEARCH}, 2.5)   # next cycle re-searches from there
+            return "no_cars"
+        if s == HOUSE:
+            self.io.press("enter")                 # 搜索拍卖 (default-selected) -> 搜寻
+            if self._wait_for({SEARCH}, 3.0) == SEARCH:
+                self.io.run_search()               # 确认 (pre-selected) -> results
                 if self._wait_for({RESULTS}, 6.0) == RESULTS and self.io.has_listing():
                     return self._buy_out_first()
             return "no_cars"
         if s == SEARCH:
-            self.io.run_search()              # 确认 -> fresh results
+            self.io.run_search()                   # 确认 -> results
             if self._wait_for({RESULTS}, 6.0) == RESULTS and self.io.has_listing():
                 return self._buy_out_first()
             return "no_cars"
         if s == DETAIL:
-            self.io.press("esc")              # one Back -> results; next cycle buys it
+            self.io.press("esc")                   # one Back -> results; next cycle buys it
             self._wait_for({RESULTS}, 2.5)
             return "recovered"
-        # HOUSE / UNKNOWN / anything else: NEVER press Back here. Pressing Back on a screen we
-        # don't recognise is exactly what walked the menu out to free roam. Just wait + re-read.
+        # UNKNOWN (incl. results mid-load) / non-auction: wait + re-read; NEVER press Back here.
         return "recovered"
 
     def _buy_out_first(self) -> str:
@@ -333,6 +345,12 @@ class AuctionIO:
         except Exception:
             pass
 
+    def blocked(self) -> bool:
+        """True when the last-read screen shows an online/auction-service-unavailable banner
+        (服务器目前无法使用 / 请稍后再试 / 连接已断开). The auction can't return cars then, so the
+        snipe should just wait rather than navigate into a dead screen."""
+        return detect_network_warning(self._last_text)["visible"]
+
     def screen(self) -> str:
         tag = classify_auction_screen(self._look())
         self._dbg(f"  [看] 识别={tag}  OCR: {self._last_text[:120]}")
@@ -376,9 +394,15 @@ class AuctionIO:
                 break
             self.press("down")
             self._look()
-        if self._stopped():
-            return
-        self.press("enter")                          # 确认 -> fresh query
+        # Press 确认; re-press if 搜寻 hasn't transitioned (dropped input -- FH6 bot's
+        # _press_until pattern). Re-pressing 确认 on the search screen is harmless (just
+        # re-searches), so up to 3 attempts.
+        for _ in range(3):
+            if self._stopped():
+                return
+            self.press("enter")                      # 确认 -> fresh query
+            if classify_auction_screen(self._look()) != SEARCH:
+                return                                # left 搜寻 -> the search fired
 
     def _log_buyout_price(self) -> None:
         m = _BUYOUT_PRICE_RE.search(self._last_text or "")

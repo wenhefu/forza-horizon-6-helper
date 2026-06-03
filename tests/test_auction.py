@@ -92,6 +92,9 @@ def test_bid_confirm_shape_and_disambiguation():
 
 def test_network_warning_detected():
     assert detect_network_warning(NETWORK)["visible"]
+    # live-captured online/auction-service-down banners (the auction server being unavailable)
+    assert detect_network_warning("拍卖场 | 服务器目前无法使用，请稍后再试。")["visible"]
+    assert detect_network_warning("地平线生活警告 | 地平线生活当前不可用 | 返回漫游模式才可接受邀请")["visible"]
     assert not detect_network_warning(RESULTS)["visible"]
     assert not detect_network_warning(DETAIL)["visible"]
 
