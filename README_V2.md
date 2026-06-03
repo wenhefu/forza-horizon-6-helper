@@ -1,3 +1,5 @@
+> ⚠️ **已淘汰，别用。** 本版已被 `Forza6HelperV4GUI.exe` 取代，仅作历史留存。请看根目录 [`README.md`](README.md)。
+
 # Forza6Helper V2 页面理解测试版
 
 V2 是单独的实验程序，不替换当前稳定版助手。它只做三件事：

@@ -1,3 +1,5 @@
+> ⚠️ **已淘汰，别用。** 本版已被 `Forza6HelperV4GUI.exe` 取代，仅作历史留存。请看根目录 [`README.md`](README.md)。
+
 # Forza6Helper Vision 最强识别版
 
 Vision 是独立 V3 识别实验版，不替换 V1 稳定 runner。它的目标是把 Forza 页面理解层做成可采样、可训练、可导出 ONNX、可 benchmark、可打包的链路。
