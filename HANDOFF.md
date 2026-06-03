@@ -5,9 +5,13 @@
 `dist/Forza6HelperV4GUI.exe` rebuilt from `v5-foundation` with the super-assistant features.
 Run it directly (keep Forza foreground); no install needed (ViGEmBus is the only external
 driver, and the GUI prompts/links it if missing). What's testable in this build:
-- **Mode-three** (开始): buy 22B + mastery → nav → farm. Now stops buying when skill points
-  hit 0 (no more doomed extra car).
-- **「导航用 V5 事件驱动」checkbox**: routes the nav phase through the faster V5 reactor.
+- **Mode-three** (开始): buy 22B + mastery → nav → farm. Stops buying at 0 skill points. ONE
+  nav now (V4/V5 toggle removed): the proven full-path nav, which has the 2-consecutive-arrival
+  debounce that the V5 reactor lacked (V5 auto-nav had short-circuited to a false race_menu →
+  free-roam throttle-holding). Nav now settles (cheap frame-diff) before each ~0.7s OCR instead
+  of wasting recognitions on transition frames (accuracy-safe). Recognition is CPU-OCR-bound
+  ~0.7s; downscale proven UNSAFE offline (11/56 real frames misclassify) so it stays full-res;
+  no GPU provider on this box → much-faster needs GPU/a trained model (separate effort).
 - **「清理重复22B」button** (+ max-count): clears junk 22B copies via the native 重复项 filter,
   keeps the favorited/driving car, verifies the remove-confirm before each delete. Start from
   My Vehicles or the 车辆 tab. NOTE: 从车库移除 declutters (no credits — FH limitation).
