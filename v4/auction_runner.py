@@ -359,34 +359,18 @@ class AuctionIO:
             self.on_log(f"抢车：目标买断价 CR {m.group(1)}。")
 
     def open_buyout(self) -> bool:
-        """Open a buy-out-selectable screen for the focused listing.
+        """选择/Enter on the focused results card -> 车辆详情 (竞价 focused, 买断 below).
 
-        FAST path (research): Y opens the 拍卖选项 quick-menu (竞价/买断) WITHOUT the ~3-5s
-        车辆详情 load that loses fast listings. FALLBACK: the proven 选择/Enter -> 车辆详情.
-        Both end with 竞价 (focused, top) / 买断 (below); the caller then does Down-once -> A,
-        and the buy is guarded by the BUY-OUT-vs-BID confirm check -- so even if a screen is
-        misread, the worst case is 'no buy', never a wrong buy or a bid.
-
-        REFINE-LIVE: the Y quick-menu (detect_auction_options) is confirmed live when the
-        auction is reachable; the fallback keeps it working meanwhile."""
-        self.press("y")                              # FAST: Y -> 拍卖选项 quick-menu
-        self._look()
-        self._dbg(f"  [开] Y后 识别={classify_auction_screen(self._last_text)}")
-        if (detect_auction_options(self._last_text)["visible"]
-                or classify_auction_screen(self._last_text) == DETAIL):
-            self._log_buyout_price()
-            return True
-        # Y didn't yield a buy-out menu. If it opened some other recognised screen, close it
-        # back toward the results list so the fallback A lands on a card (not a stray menu).
-        if classify_auction_screen(self._last_text) not in (RESULTS, UNKNOWN):
-            self.press("esc")
-        self.press("enter")                          # FALLBACK: 选择 -> 车辆详情 (validated)
+        This is the path VALIDATED live (3 buy-outs). The faster Y quick-menu is deferred
+        until it can be confirmed on the live auction -- when its menu wasn't recognised it
+        risked an A landing on the 竞价/bid row, so reliability first."""
+        self.press("enter")                          # 选择 -> 车辆详情
         for _ in range(8):
             if self._stopped():
                 return False
             tag = classify_auction_screen(self._look())
             self._dbg(f"  [开] 选择后 识别={tag}")
-            if tag == DETAIL or detect_auction_options(self._last_text)["visible"]:
+            if tag == DETAIL:
                 self._log_buyout_price()
                 return True
         return classify_auction_screen(self._last_text) == DETAIL
