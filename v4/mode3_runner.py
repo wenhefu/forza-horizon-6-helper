@@ -30,6 +30,15 @@ from v4.recognizer import V4Recognizer, V4Snapshot
 from v4.watchdog import ProgressWatchdog
 from window_capture import capture_client
 
+# Decisions that mean "the page/list is legitimately still loading (network)", not "stuck".
+# While the EventLab nav is in one of these, the stall-watchdog is held off (up to
+# EVENTLAB_NETWORK_PATIENCE_SECONDS) so a slow connection waits patiently instead of failing.
+EVENTLAB_NETWORK_WAIT_DECISIONS = {
+    "eventlab_tab_unknown_wait",
+    "nudge_eventlab_tab_to_favorites",
+    "wait_modal_loading",
+}
+
 
 @dataclass
 class V4StepRecord:
@@ -129,6 +138,7 @@ class V4Mode3Runner:
         require_foreground: bool = True,
         loop_rounds: int = 1,
         max_consecutive_failures: int = 3,
+        buy_first: bool = True,
     ) -> None:
         if self.is_running():
             self._log("V4 已在运行，忽略重复启动。")
@@ -146,6 +156,7 @@ class V4Mode3Runner:
                 "exit_after_farm": exit_after_farm,
                 "auto_focus": auto_focus,
                 "require_foreground": require_foreground,
+                "buy_first": buy_first,
                 **({"loop_rounds": loop_rounds, "max_consecutive_failures": max_consecutive_failures} if use_loop else {}),
             },
             name="v4-mode3-runner",
@@ -173,6 +184,7 @@ class V4Mode3Runner:
         exit_after_farm: bool = True,
         auto_focus: bool = False,
         require_foreground: bool = True,
+        buy_first: bool = True,
     ) -> bool:
         self.report = V4RunReport(datetime.now(timezone.utc).astimezone().isoformat(), self.title)
         self.report_dir.mkdir(parents=True, exist_ok=True)
@@ -188,23 +200,46 @@ class V4Mode3Runner:
             if not self._ensure_foreground(auto_focus, require_foreground):
                 return self._finish(False, "game_not_foreground")
 
-            if run_buy:
-                if not self._run_buy_phase(auto_focus=auto_focus, require_foreground=require_foreground):
-                    return self._finish(False, "buy_phase_failed")
-            else:
-                self._log("V4 跳过买车阶段，从当前页面续接 EventLab 导航。")
+            def _buy_phase() -> bool:
+                if run_buy:
+                    return self._run_buy_phase(auto_focus=auto_focus, require_foreground=require_foreground)
+                self._log("V4 跳过买车阶段。")
+                return True
 
-            if not self._navigate(pad, auto_focus, require_foreground):
-                return self._finish(False, "eventlab_navigation_failed")
+            def _nav_phase() -> bool:
+                return self._navigate(pad, auto_focus, require_foreground)
 
-            if run_farm:
+            def _farm_phase(force_exit: bool) -> tuple[bool, str]:
+                if not run_farm:
+                    self._log("V4 已到达 EventLab 开始赛事菜单；本次按配置不启动刷分阶段。")
+                    return True, ""
                 seconds = self._farm_seconds(farm_seconds)
                 if not self._run_farm_phase(seconds, auto_focus=auto_focus, require_foreground=require_foreground):
-                    return self._finish(False, "farm_phase_failed")
-                if exit_after_farm and not self._exit_after_farm(pad, auto_focus, require_foreground):
-                    return self._finish(False, "exit_after_farm_failed")
+                    return False, "farm_phase_failed"
+                if (exit_after_farm or force_exit) and not self._exit_after_farm(pad, auto_focus, require_foreground):
+                    return False, "exit_after_farm_failed"
+                return True, ""
+
+            if buy_first:
+                # 先买车再跑图（默认）：买车加点 -> 导航去刷图 -> 刷图。
+                if not _buy_phase():
+                    return self._finish(False, "buy_phase_failed")
+                if not _nav_phase():
+                    return self._finish(False, "eventlab_navigation_failed")
+                ok, reason = _farm_phase(force_exit=False)
+                if not ok:
+                    return self._finish(False, reason)
             else:
-                self._log("V4 已到达 EventLab 开始赛事菜单；本次按配置不启动刷分阶段。")
+                # 先跑图再买车：导航 -> 刷图 -> 收尾回暂停 -> 买车加点（都从暂停菜单起步）。
+                self._log("V4 本轮顺序：先跑图再买车。")
+                if not _nav_phase():
+                    return self._finish(False, "eventlab_navigation_failed")
+                # 跑完后若还要买车，必须先收尾回到暂停菜单，买车阶段才有干净起点。
+                ok, reason = _farm_phase(force_exit=run_buy)
+                if not ok:
+                    return self._finish(False, reason)
+                if not _buy_phase():
+                    return self._finish(False, "buy_phase_failed")
 
             return self._finish(True, "completed")
         except Exception as exc:
@@ -227,6 +262,7 @@ class V4Mode3Runner:
         require_foreground: bool = True,
         loop_rounds: int = 0,
         max_consecutive_failures: int = 3,
+        buy_first: bool = True,
     ) -> bool:
         rounds = self._loop_rounds(loop_rounds)
         round_label = "无限" if rounds is None else str(rounds)
@@ -240,6 +276,7 @@ class V4Mode3Runner:
                 exit_after_farm=exit_after_farm,
                 auto_focus=auto_focus,
                 require_foreground=require_foreground,
+                buy_first=buy_first,
             )
         if not exit_after_farm:
             # A multi-round loop MUST return to a known page (the pause menu)
@@ -278,6 +315,7 @@ class V4Mode3Runner:
                 exit_after_farm=exit_after_farm,
                 auto_focus=auto_focus,
                 require_foreground=require_foreground,
+                buy_first=buy_first,
             )
             reason = self.report.stopped_reason
             self._log(f"V4 完整模式三循环：本轮结束，结果={reason}，ok={ok}。")
@@ -589,6 +627,8 @@ class V4Mode3Runner:
         self._log("V4 EventLab 导航启动：每次只按一个键，然后重新识别验证。")
 
         arrived_streak = 0
+        network_wait_started: float | None = None
+        patience = float(getattr(config, "EVENTLAB_NETWORK_PATIENCE_SECONDS", 300.0))
         while not self._stop.is_set() and time.monotonic() - started <= max_route_seconds:
             if not self._ensure_foreground(auto_focus, require_foreground):
                 return False
@@ -619,6 +659,25 @@ class V4Mode3Runner:
                     return False
                 continue
             arrived_streak = 0
+
+            # Network/list still loading (e.g. the EventLab events grid spinning on a slow
+            # connection): wait PATIENTLY instead of failing fast. Hold off the stall-watchdog
+            # while we're legitimately loading -- nudging toward 我的收藏 meanwhile -- and only
+            # give up after a generous patience budget. The user can still stop at any time.
+            if decision.name in EVENTLAB_NETWORK_WAIT_DECISIONS:
+                if network_wait_started is None:
+                    network_wait_started = time.monotonic()
+                    self._log(
+                        f"V4 EventLab 列表/网络仍在加载；耐心等待最多 {patience:.0f} 秒，"
+                        "期间朝我的收藏移动到位，不盲按其它键。"
+                    )
+                if time.monotonic() - network_wait_started <= patience:
+                    watchdog.reset(phase, token)
+                else:
+                    self._log("V4 EventLab 网络/加载等待已超出耐心上限，停止本轮，避免无限等待。")
+                    return False
+            else:
+                network_wait_started = None
 
             if watchdog.stalled():
                 if not self._recover_stall(pad, snapshot, decision, watchdog, phase):
@@ -755,6 +814,8 @@ class V4Mode3Runner:
             context.creative_focus_moves += 1
         elif decision.name == "scan_favorite_event_cards":
             context.eventlab_card_moves += 1
+        elif decision.name == "nudge_eventlab_tab_to_favorites":
+            context.eventlab_tab_unknown_nudges += 1
         elif decision.name == "scan_filtered_vehicle_cards":
             context.vehicle_card_moves += 1
         elif decision.name == "return_from_checked_filter":

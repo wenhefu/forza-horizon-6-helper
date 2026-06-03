@@ -66,6 +66,8 @@ class V4App:
         self.exit_after_farm = tk.BooleanVar(value=True)
         self.auto_focus = tk.BooleanVar(value=True)
         self.farm_mode = tk.StringVar(value="vision")
+        # 循环顺序：buy_first=先买车再跑图(默认)；farm_first=先跑图再买车。都从暂停菜单起步。
+        self.loop_order = tk.StringVar(value="buy_first")
         # Navigation is the one proven full-path nav (no V4/V5 toggle exposed -- one version).
         # sell-duplicates (Phase B): clear junk 22B copies, keep the favorited farm car
         self.sell_max = tk.StringVar(value="80")
@@ -167,6 +169,13 @@ class V4App:
         ttk.Radiobutton(fm, text="视觉制导(推荐)", variable=self.farm_mode, value="vision",
                         style="App.TRadiobutton").grid(row=0, column=1, sticky="w", padx=(8, 0))
         ttk.Radiobutton(fm, text="V1 SmartRunner(兜底)", variable=self.farm_mode, value="smart",
+                        style="App.TRadiobutton").grid(row=0, column=2, sticky="w", padx=(8, 0))
+        om = tk.Frame(body, bg=COLORS["surface"])
+        om.grid(row=row + 1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        tk.Label(om, text="循环顺序:", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).grid(row=0, column=0, sticky="w")
+        ttk.Radiobutton(om, text="先买车再跑图(默认)", variable=self.loop_order, value="buy_first",
+                        style="App.TRadiobutton").grid(row=0, column=1, sticky="w", padx=(8, 0))
+        ttk.Radiobutton(om, text="先跑图再买车", variable=self.loop_order, value="farm_first",
                         style="App.TRadiobutton").grid(row=0, column=2, sticky="w", padx=(8, 0))
 
     def _field(self, parent, row, label, var, unit):
@@ -287,10 +296,14 @@ class V4App:
         self.runner.watchdog_seconds = watchdog
         self.runner._farm_mode = self.farm_mode.get()
         self.runner.nav_mode = "v4"   # one version: the proven full-path nav
+        buy_first = self.loop_order.get() != "farm_first"
+        order_label = "先买车再跑图" if buy_first else "先跑图再买车"
         self._log(
-            f"开始:farm_mode={self.farm_mode.get()} 跑图={farm_minutes}分钟 完整循环={loop_rounds}轮 看门狗={watchdog:.0f}s "
-            f"跳过买车={self.skip_buy.get()} 跳过刷图={self.skip_farm.get()}"
+            f"开始:farm_mode={self.farm_mode.get()} 顺序={order_label} 跑图={farm_minutes}分钟 完整循环={loop_rounds}轮 "
+            f"看门狗={watchdog:.0f}s 跳过买车={self.skip_buy.get()} 跳过刷图={self.skip_farm.get()}"
         )
+        if not buy_first and self.skip_farm.get():
+            self._log("注意: “先跑图再买车”需要刷图阶段；已勾选跳过刷图，本轮会退化成“只导航再买车”，买车可能不是从干净起点开始。")
         if loop_rounds != 1 and not self.exit_after_farm.get():
             self.exit_after_farm.set(True)
             self._log("注意: 完整循环需要刷图后收尾才能进入下一轮；已自动为你勾上“刷图结束后回收尾到暂停菜单”。")
@@ -309,6 +322,7 @@ class V4App:
             require_foreground=True,
             loop_rounds=loop_rounds,
             max_consecutive_failures=max_fail,
+            buy_first=buy_first,
         )
 
     def on_stop(self):

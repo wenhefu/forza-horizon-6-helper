@@ -33,6 +33,12 @@ BUY_SETTLE_STABLE_FRAMES = 3        # consecutive stable frames required after a
 BUY_OCR_MIN_INTERVAL_SECONDS = 1.5
 BUY_OCR_MIN_CONFIDENCE = 0.45
 BUY_OCR_LOG_ITEMS = True
+
+# EventLab nav: when the events grid is still loading (network), the tab bar reads as
+# unknown. Rather than fail fast, V4 nudges toward 我的收藏 and then waits patiently for the
+# list to load -- up to this many seconds of legitimate "still loading" before giving up the
+# round. The outer 18-min route cap and the stop button still bound it.
+EVENTLAB_NETWORK_PATIENCE_SECONDS = 300.0
 COMBO_EVENTLAB_FARM_SECONDS = 90 * 60  # one farming leg between buy-car cycles (default 1.5 hours)
 COMBO_EVENTLAB_EXIT_MAX_OVERTIME = 15 * 60  # after total runtime, hard cap for waiting on the current race to finish
 COMBO_EXIT_TO_PAUSE_MAX_ATTEMPTS = 8  # press A and try Menu this many times before giving up

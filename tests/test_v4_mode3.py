@@ -317,6 +317,49 @@ def test_filter_unchecked_toggles_once_checked_returns():
     assert "取消" in checked.reason
 
 
+def _order_runner(calls):
+    runner = V4Mode3Runner.__new__(V4Mode3Runner)
+    runner._stop = threading.Event()
+    runner.title = "Forza"
+    runner.report_dir = SimpleNamespace(mkdir=lambda **k: None)
+    runner._log = lambda m: None
+    runner._sleep = lambda s: True
+    runner._pad_provider = lambda: SimpleNamespace(neutral=lambda: None)
+    runner._ensure_foreground = lambda *a, **k: True
+    runner._farm_seconds = lambda f: 1.0
+    runner.write_report = lambda: None
+    runner._finish = lambda ok, reason: ok
+    runner._run_buy_phase = lambda **k: (calls.append("buy") or True)
+    runner._navigate = lambda *a, **k: (calls.append("nav") or True)
+    runner._run_farm_phase = lambda *a, **k: (calls.append("farm") or True)
+    runner._exit_after_farm = lambda *a, **k: (calls.append("exit") or True)
+    return runner
+
+
+def test_run_once_buy_first_phase_order():
+    calls = []
+    ok = _order_runner(calls).run_once(run_buy=True, run_farm=True, exit_after_farm=True, buy_first=True)
+    assert ok is True
+    assert calls == ["buy", "nav", "farm", "exit"]
+
+
+def test_run_once_farm_first_phase_order():
+    # 先跑图再买车：导航 -> 刷图 -> 收尾回暂停 -> 买车（买车在最后，从干净起点开始）。
+    calls = []
+    ok = _order_runner(calls).run_once(run_buy=True, run_farm=True, exit_after_farm=True, buy_first=False)
+    assert ok is True
+    assert calls == ["nav", "farm", "exit", "buy"]
+
+
+def test_run_once_farm_first_forces_exit_before_buy_even_when_unchecked():
+    # Even if the user unchecked post-farm cleanup, farm-first MUST return to the pause
+    # menu before buying so the buy phase starts from a clean, known page.
+    calls = []
+    ok = _order_runner(calls).run_once(run_buy=True, run_farm=True, exit_after_farm=False, buy_first=False)
+    assert ok is True
+    assert calls == ["nav", "farm", "exit", "buy"]
+
+
 def test_eventlab_uses_top_nav_not_y_for_favorites():
     decision = decide_mode3_navigation(
         fake_v3("eventlab_events", active_tab="热门", selected_item="dao ju4"),
@@ -334,6 +377,24 @@ def test_eventlab_does_not_enter_wrong_event():
     )
     assert decision.button == ""
     assert decision.name == "target_event_not_found"
+
+
+def test_eventlab_tab_unknown_nudges_to_favorites_then_waits_patiently():
+    # Network glitch: the events grid is still loading so the tab bar reads as unknown.
+    # V4 must NOT freeze + fail -- it nudges RB toward 我的收藏 (bounded), then waits patiently.
+    nudging = decide_mode3_navigation(
+        fake_v3("eventlab_events", active_tab="", selected_item="某个非目标赛事"),
+        RouteContext(eventlab_tab_unknown_nudges=0),
+    )
+    assert nudging.name == "nudge_eventlab_tab_to_favorites"
+    assert normalize_button(nudging.button) == "rb"
+
+    waiting = decide_mode3_navigation(
+        fake_v3("eventlab_events", active_tab="", selected_item="某个非目标赛事"),
+        RouteContext(eventlab_tab_unknown_nudges=4),
+    )
+    assert waiting.name == "eventlab_tab_unknown_wait"
+    assert waiting.can_press is False  # patient wait, never a blind press
 
 
 def test_eventlab_target_event_and_22b_are_enterable():

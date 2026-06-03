@@ -9,6 +9,10 @@ from v3.ui_tree import EVENTLAB_TABS, PAUSE_TABS
 
 TARGET_EVENT_KEYWORDS = ("SPFARM", "SKILLPOINT", "SKILLPOINTS", "24SECOND", "24秒")
 TARGET_CAR_KEYWORDS = ("22B", "IMPREZA", "MPREZA", "STI")
+# When the EventLab tab bar can't be read (the events grid is still spinning on a slow
+# connection), don't freeze: nudge RB toward 我的收藏 (it sits to the right) this many times,
+# then wait patiently for the network. RB only moves tabs -- it can never exit or mis-buy.
+EVENTLAB_TAB_UNKNOWN_MAX_NUDGES = 4
 BUY_FLOW_CHILD_SCREENS = {
     "autoshow_buy_sell",
     "autoshow_showroom",
@@ -34,6 +38,7 @@ class RouteContext:
     favorite_filter_checked: bool = False
     eventlab_card_moves: int = 0
     vehicle_card_moves: int = 0
+    eventlab_tab_unknown_nudges: int = 0
     creative_focus_moves: int = 0
     locked_feature_seen: bool = False
     locked_backouts: int = 0
@@ -486,12 +491,24 @@ def _eventlab_events_decision(
             )
 
     if not active_tab:
+        # Tab bar unreadable -- almost always the events grid is still loading on a slow
+        # connection. Don't freeze + fail: 我的收藏 is to the RIGHT, so nudge toward it with
+        # RB (bounded), then wait patiently for the network. Once the tab becomes readable
+        # again the logic above takes over and corrects the direction. RB only moves tabs.
+        if context.eventlab_tab_unknown_nudges < EVENTLAB_TAB_UNKNOWN_MAX_NUDGES:
+            return V4Decision(
+                "nudge_eventlab_tab_to_favorites",
+                "RB",
+                "EventLab 顶栏暂时识别不出(多半是网络/列表仍在加载)；我的收藏在右侧，先朝它移动，再耐心等待。",
+                "按后重新识别 active_tab；读到我的收藏即停止盲移。",
+                min(confidence, 0.55),
+            )
         return V4Decision(
-            "eventlab_tab_unknown",
+            "eventlab_tab_unknown_wait",
             "",
-            "EventLab 赛事列表顶栏未知，不能判断 LB/RB，也不能按 Y。",
-            "重新识别顶栏 active_tab 或保存样本。",
-            min(confidence, 0.68),
+            "EventLab 顶栏仍识别不出，已朝我的收藏移动到位；耐心等待网络/列表加载，不盲按。",
+            "网络恢复后会重新识别顶栏 active_tab；或保存样本。",
+            min(confidence, 0.55),
         )
 
     if context.eventlab_card_moves < 8:
