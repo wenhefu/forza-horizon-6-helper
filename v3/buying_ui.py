@@ -392,10 +392,15 @@ def detect_auction_house(ocr_text: str) -> dict:
 
 def detect_buyout_confirm(ocr_text: str) -> dict:
     """The 买断 (Buy Out) confirm popup, and its outcomes. Verified before pressing Yes so
-    a mis-navigated menu can never confirm a purchase. (Outcome strings to refine live.)"""
+    a mis-navigated menu can never confirm a purchase.
+
+    Must require the confirm-QUESTION shape, NOT just '买断' + a confirm word: the SEARCH
+    screen carries '最高买断价' (contains 买断) and a '确认' button, which would false-match.
+    Outcome strings (成交/失败...) to refine against real captures live."""
     text = ocr_text or ""
+    visible = any(k in text for k in ("确定要买断", "买断吗", "是否买断", "确认买断", "确定买断"))
     return {
-        "visible": "买断" in text and ("确定" in text or "确认" in text or "是否" in text),
+        "visible": visible,
         "succeeded": "成交" in text or "购买成功" in text,
         "failed": "失败" in text or "已售出" in text or "出价更高" in text,
     }
