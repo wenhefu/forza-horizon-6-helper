@@ -11,14 +11,55 @@ driver, and the GUI prompts/links it if missing). What's testable in this build:
 - **「清理重复22B」button** (+ max-count): clears junk 22B copies via the native 重复项 filter,
   keeps the favorited/driving car, verifies the remove-confirm before each delete. Start from
   My Vehicles or the 车辆 tab. NOTE: 从车库移除 declutters (no credits — FH limitation).
+- **「拍卖场抢车」row** (空跑验证 / 开始抢车(真买) + 最多N辆): buy out listings of a search you
+  pre-set in-game (拍卖场→搜索拍卖→型号/最高买断价→确认→停在结果页). 空跑 = zero-risk rehearsal;
+  真买 = buys (买断 not 竞价) then dismisses 买断成功. Bought cars wait in 我的竞价 to be 领取.
 - **「把地平线调成 16:9」**: window normalize.
 
 Build: `.venv/Scripts/python -m PyInstaller Forza6HelperV4GUI.spec --noconfirm --clean`.
-The **spec is gitignored**; its `hiddenimports` MUST list the lazily-imported modules
-(v5.nav_runner/reactor/screen_registry/capture_engine, v4.sell_runner/sell_planner,
+The spec's `hiddenimports` MUST list the lazily-imported modules (v5.nav_runner/reactor/
+screen_registry/capture_engine, v4.sell_runner/sell_planner, **v4.auction_runner**,
 v3.buying_ui) or those features crash in the frozen exe. dxcam is NOT bundled (the integrated
-V5 nav uses engine=None; capture_engine imports dxcam lazily). Auction snipe (Phase C) is NOT
-in this build yet (only the detectors exist).
+V5 nav uses engine=None; capture_engine imports dxcam lazily). Auction snipe (Phase C, the
+拍卖场抢车 row) IS in this build (buy-out validated live).
+
+## 2026-06-03 Super-assistant — #2 AUCTION buy-out DONE + live-validated + in GUI
+
+**#2 Auction snipe — buy-out works end-to-end on the live game.** `v4/auction_runner.py`
+(`AuctionSniper` control logic + real `AuctionIO`) + `auction_launcher.py` + a GUI 拍卖场抢车
+row (空跑验证 / 开始抢车(真买) + 最多N辆). The USER pre-sets the search in-game (拍卖场 →
+搜索拍卖 → 型号/最高买断价 → 确认 → 停在结果页); the runner does the rest.
+
+**Validated live flow** (captured from REAL frames — note it differs from the first manual
+screenshots): results → A(选择) → 车辆详情 (竞价 focused at TOP, 买断 just BELOW) → Down ONCE
+→ A → 买断 confirm (`是否确定要买断该拍卖`, 嗯/不) → A(嗯) → **买断成功** popup
+(`您可以在我的竞价页面领取该车辆` + 确定) → A(确定) → results. The bought car is paid and parked
+in **我的竞价**; moving it to the garage is the SEPARATE 领取车辆→正在领取→已加入车库 step (those
+first manual screenshots), handled by `AuctionIO._collect_won_car()` (`launcher --collect`).
+
+**SAFETY (all live-proven):**
+- The detail screen DEFAULT-focuses 竞价 (BID); 买断 is one Down below. The buy-out presses
+  Down exactly ONCE (never retried), then verifies the dialog is the BUY-OUT confirm; if it's
+  the BID confirm (`是否确定要为该拍卖竞价` / `detect_bid_confirm`) it REFUSES — these confirm
+  dialogs IGNORE B/Esc (footer is only `Enter 选择`) and Down+A would risk a bid, so it reports
+  and bails rather than touch it.
+- 空跑验证 (dry-run) stops at 车辆详情 (sees the 买断 row) and backs out with B — ZERO credits.
+- Disconnect banner (`连接已断开`) + empty/loading results → treated as unbuyable.
+- GUI/launcher guard: only acts when actually on an auction screen (no stray B-presses).
+
+**Live results:** 3 buy-outs executed (260k + 240k + 240k PORTOFINO); credits dropped exactly
+per buy-out (42,292,777 → 41,552,777); dry-run + 买断成功→确定 + --collect all validated.
+Detectors (v3/buying_ui.py): `detect_auction_search/_results/_detail/_house/_buyout_confirm/
+_bid_confirm/_buyout_success/_network_warning/_auction_won/_auction_collected`. 226 passed.
+
+- **Pending-collection note:** bought cars sit in 我的竞价 awaiting 领取. A future GUI 「领取全部」
+  (loop `_collect_won_car` over 我的竞价) would batch-move them to the garage; for now collect
+  manually or `python auction_launcher.py --collect` on a 领取车辆 screen.
+- **Multi-buy (最多>1):** buys the focused listing each loop; a 成交/owned card just recovers
+  (safe) — fine for v1; could add skip-by-listing-state later.
+- **Recurring quirk:** the standalone launcher disconnects the virtual pad on exit → the game
+  shows 控制器未连接 (dismissed on the next run, or by a real mouse click). The persistent GUI
+  keeps the pad alive, so it won't nag during normal GUI use.
 
 ## 2026-06-03 Super-assistant — #3 sell-duplicates DONE + in GUI; #2 auction researched
 

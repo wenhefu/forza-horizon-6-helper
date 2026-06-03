@@ -129,29 +129,34 @@ us**. `detect_eventlab_filter_state` reads the focus; 重复项 is the 3rd row (
   (careful, deferred — reliability first on a delete-path). Auto-nav handles pause_story /
   pause_vehicle_entry / grid; `pause_my_horizon` start state still needs a tweak.
 
-**Phase C — Auction snipe (priority 2, researched; new runner + GUI).**
+**Phase C — Auction snipe (priority 2) — DONE + live-validated + GUI-integrated.**
 GitHub research (2026-06): a FH6-specific OSS sniper **FrostyIsBored/FH6-Auction-House-Sniper**
-uses our exact method — screen-reading + virtual input, runs only while FH6 is focused, NO
-injection — confirming our path. (Others: Scruffydrew FH5 sniper, YiwenLu FH5 OpenCV buyout.)
-- **In-game snipe flow (to replicate via vgamepad + screen-read):** 拍卖场 → 搜索拍卖 → set
-  车厂/型号/性能/最高买断价 → 确认 → watch 拍卖详情 → when a match ≤ max-buyout appears:
-  **Y (拍卖选项) → ↓ 买断(Buyout) → 确认** → collect → loop (re-search).
-- **Anti-ban (from research):** Playground flags static sub-ms / robotic delays — use
-  RANDOMIZED human-like tap timing (still no injection; just jittered delays). Keep the
-  game foreground (already required), 1920×1080, consistent graphics.
-- [x] **Screen detectors built** (`v3/buying_ui.py`, standalone like the sell ones; the
-  classifier mislabels these): `detect_auction_search` / `detect_auction_results` /
-  `detect_auction_house` / `detect_buyout_confirm`. 5 tests from live OCR.
-- [ ] **Live-capture the buyout flow** (needs the auction open with listings): select a
-  listing → **Y (拍卖选项)** → the options popup → **买断** → its confirm → 成交/失败. Refine
-  `detect_buyout_confirm` outcome strings from these captures (currently guessed).
-- [ ] **AuctionSnipeRunner** (DRY-RUN first; then credit-spending, user-watched): user pre-sets
-  filters (型号 + 最高买断价) on 搜寻 → loop: 确认 → results → if a populated/not-sold listing →
-  Y → **↓ 买断 (ONCE, never retry) + delay → confirm** → 成交? collect → loop. Randomized timing.
-- [ ] GUI: target model + max buyout + Start-snipe button. (Optional: read buy-now PRICE via
-  OCR to enforce "≤ max" beyond the game filter — our edge over pure template match.)
+uses our exact method — screen-reading + virtual input, focused-window, NO injection.
+(Others: Scruffydrew FH5 sniper, YiwenLu FH5 OpenCV buyout.)
 
-Order done: A (skill points) ✓ → B (sell duplicates) ✓ → C (auction) researched, next to build.
+- **ACTUAL validated flow** (live-captured — the real path is 选择→车辆详情, NOT the Y→拍卖选项
+  the research guessed): 拍卖场 → 搜索拍卖 → set 型号/最高买断价 → 确认 → 结果页 → **A(选择)** →
+  车辆详情 (竞价 focused at TOP, 买断 just BELOW) → **Down ONCE → A** → 买断 confirm
+  (`是否确定要买断该拍卖`, 嗯/不) → **A(嗯)** → **买断成功** popup (`您可以在我的竞价页面领取
+  该车辆` + 确定) → **A(确定)** → results. Bought car parks in **我的竞价**; the SEPARATE
+  领取车辆→正在领取→已加入车库 step moves it to the garage (`_collect_won_car`).
+- **Anti-ban:** RANDOMIZED human-like tap timing (jittered delays; still no injection), game
+  foreground (required), windowed 16:9.
+- [x] **Detectors** (`v3/buying_ui.py`): `detect_auction_search/_results/_detail/_house/
+  _buyout_confirm/_bid_confirm/_buyout_success/_network_warning/_auction_won/_auction_collected`.
+- [x] **Buyout flow live-captured** + detectors corrected from REAL OCR (the success popup is
+  买断成功, not the 拍卖完成/领取车辆 of the deferred 我的竞价 collect).
+- [x] **`AuctionSniper` + `AuctionIO`** (`v4/auction_runner.py`): control logic is unit-tested
+  via an injectable IO (dry-run/confirm-verify/Down-once/bid-abort); real IO = OUR recognizer
+  (OCR→`classify_auction_screen`) + vgamepad. **Safety:** Down to 买断 pressed ONCE, the dialog
+  verified as the BUY-OUT (not BID) confirm before 嗯; the confirm dialogs ignore B/Esc so a
+  BID confirm is REFUSED (never Down+A'd); dry-run stops at 车辆详情 (zero credits).
+- [x] **GUI** 拍卖场抢车 row (空跑验证 / 开始抢车 + 最多N辆) + `auction_launcher.py`
+  (--probe/--dry-run/--buy/--collect). Live: 3 buy-outs executed, credits confirmed dropping.
+- [ ] *Future:* GUI 「领取全部」 (batch `_collect_won_car` over 我的竞价); skip 成交/owned cards
+  on multi-buy; read buy-now PRICE to enforce "≤ max" beyond the game filter.
+
+Order done: A (skill points) ✓ → B (sell duplicates) ✓ → C (auction buy-out) ✓ live-validated.
 
 ## Learnings from the FH6 OSS sniper (FrostyIsBored/FH6-Auction-House-Sniper)
 
