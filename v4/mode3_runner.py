@@ -102,7 +102,7 @@ class V4Mode3Runner:
             stall_seconds=self.watchdog_seconds,
         )
         self._farm_mode = "vision"
-        self.nav_mode = "v4"  # "v5" -> event-driven V5Navigator for the nav phase
+        self.nav_mode = "v5"  # event-driven V5Navigator (default); "v4" = legacy nav fallback
         self.report = V4RunReport(datetime.now(timezone.utc).astimezone().isoformat(), title)
         self._step_index = 0
 

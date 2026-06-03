@@ -66,7 +66,7 @@ class V4App:
         self.exit_after_farm = tk.BooleanVar(value=True)
         self.auto_focus = tk.BooleanVar(value=True)
         self.farm_mode = tk.StringVar(value="vision")
-        self.use_v5_nav = tk.BooleanVar(value=False)
+        self.use_v5_nav = tk.BooleanVar(value=True)   # V5 event-driven nav is now the default
         # sell-duplicates (Phase B): clear junk 22B copies, keep the favorited farm car
         self.sell_max = tk.StringVar(value="80")
         self.sell_model = tk.StringVar(value="22B")  # car-name substring to clear dups of
@@ -157,7 +157,7 @@ class V4App:
             ("跳过刷图阶段(只到开始赛事菜单)", self.skip_farm),
             ("刷图结束后回收尾到暂停菜单", self.exit_after_farm),
             ("自动切回游戏前台(失焦时尝试)", self.auto_focus),
-            ("导航用 V5 事件驱动(实验·更快;买车/刷图仍用稳定版)", self.use_v5_nav),
+            ("导航用 V5 事件驱动(默认·更快;买车/刷图仍用稳定版,取消则回退旧版导航)", self.use_v5_nav),
         ]:
             ttk.Checkbutton(body, text=text, variable=var, style="App.TCheckbutton").grid(
                 row=row, column=0, columnspan=3, sticky="w", pady=5)
