@@ -3,10 +3,12 @@
 The CONFIRM/BID/DETAIL/NETWORK constants are the real zh-Hans strings from the captured
 buy-out flow (search -> results list -> 车辆详情 -> 买断/竞价 confirm)."""
 from v3.buying_ui import (
+    detect_auction_collected,
     detect_auction_detail,
     detect_auction_house,
     detect_auction_results,
     detect_auction_search,
+    detect_auction_won,
     detect_bid_confirm,
     detect_buyout_confirm,
     detect_network_warning,
@@ -76,6 +78,25 @@ def test_network_warning_detected():
     assert detect_network_warning(NETWORK)["visible"]
     assert not detect_network_warning(RESULTS)["visible"]
     assert not detect_network_warning(DETAIL)["visible"]
+
+
+# Post-win collect flow (captured live after the first real buy-out).
+WON = "拍卖详情 | 车辆详情 | PORTOFINO '18 | 2018 法拉利 | 史诗 | S1 714 | 马力 441 千瓦 | 扭矩 760 牛米 | 拍卖完成 | 中标 | 领取车辆 | 返回"
+COLLECTING = "领取车辆 | 正在领取您的车辆。请稍候......"
+COLLECTED = "领取车辆 | 您已成功领取本车辆。该车辆已加入您的车库。 | 确定"
+
+
+def test_auction_won_and_collected():
+    w = detect_auction_won(WON)
+    assert w["visible"] and w["can_collect"]
+    # the won-detail (拍卖完成/中标) carries '车辆详情' + stats but NO 竞价/买断 rows
+    assert not detect_auction_detail(WON)["visible"]
+    assert not detect_auction_won(DETAIL)["visible"]
+
+    assert detect_auction_collected(COLLECTING)["collecting"]
+    assert not detect_auction_collected(COLLECTING)["done"]     # still loading -> wait
+    assert detect_auction_collected(COLLECTED)["done"]          # success -> press 确定
+    assert not detect_auction_collected(RESULTS)["visible"]
 
 
 def test_none_detected_on_blank_or_unrelated():

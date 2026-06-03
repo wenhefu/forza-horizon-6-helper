@@ -445,6 +445,25 @@ def detect_network_warning(ocr_text: str) -> dict:
     return {"visible": visible}
 
 
+def detect_auction_won(ocr_text: str) -> dict:
+    """After a winning buy-out, the listing detail shows '拍卖完成 / 中标' and a 领取车辆
+    (collect-vehicle) button. Pressing A on it collects the car into the garage. This is
+    NOT a buy/bid action -- the auction is already won and paid -- so collecting is safe."""
+    text = ocr_text or ""
+    visible = "拍卖完成" in text and ("中标" in text or "领取车辆" in text)
+    return {"visible": visible, "can_collect": "领取车辆" in text}
+
+
+def detect_auction_collected(ocr_text: str) -> dict:
+    """The 领取车辆 result popup. done=True only on the success message
+    ('您已成功领取本车辆。该车辆已加入您的车库。', press 确定); collecting=True on the transient
+    '正在领取您的车辆。请稍候...' loading frame (wait, don't act)."""
+    text = ocr_text or ""
+    collecting = "正在领取" in text
+    done = "已加入您的车库" in text or "已成功领取" in text
+    return {"visible": collecting or done, "done": done, "collecting": collecting}
+
+
 def _ocr_text_inside_bbox(items, bbox) -> str:
     x1, y1, x2, y2 = clamp_bbox(bbox)
     parts = []

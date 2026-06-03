@@ -72,6 +72,10 @@ class V4App:
         self.sell_model = tk.StringVar(value="22B")  # car-name substring to clear dups of
         self._sell_thread = None
         self._sell_stop = threading.Event()
+        # auction snipe (Phase C): buy out the first listing of a search the USER pre-sets
+        self.snipe_max = tk.StringVar(value="1")     # max cars to buy out per run
+        self._snipe_thread = None
+        self._snipe_stop = threading.Event()
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
         self.status_var = tk.StringVar(value="正在加载识别模型...")
@@ -211,8 +215,25 @@ class V4App:
         self.sell_btn = ttk.Button(sellrow, text="开始清理", command=self.on_clear_duplicates,
                                    style="App.TButton", state="disabled")
         self.sell_btn.pack(side="left")
+        # Auction-house snipe (Phase C): buy out the first listing of a search the USER
+        # pre-sets in-game (拍卖场 -> 搜索拍卖 -> 型号/最高买断价 -> 确认 -> 停在结果页). "空跑验证"
+        # walks to 车辆详情/买断 then backs out (zero spend); "开始抢车" presses 嗯 (买断, never
+        # 竞价/bid) and auto-collects the won car. Stop with 停止.
+        sniperow = tk.Frame(body, bg=COLORS["surface"])
+        sniperow.grid(row=3, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        tk.Label(sniperow, text="拍卖场抢车(先设好搜索、停在结果页):", bg=COLORS["surface"],
+                 fg=COLORS["text"], font=FONT).pack(side="left")
+        tk.Label(sniperow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
+        ttk.Entry(sniperow, textvariable=self.snipe_max, width=4).pack(side="left")
+        tk.Label(sniperow, text="辆", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(2, 8))
+        self.snipe_dry_btn = ttk.Button(sniperow, text="空跑验证", command=self.on_snipe_dry,
+                                        style="App.TButton", state="disabled")
+        self.snipe_dry_btn.pack(side="left", padx=(0, 6))
+        self.snipe_buy_btn = ttk.Button(sniperow, text="开始抢车(真买)", command=self.on_snipe_buy,
+                                        style="App.TButton", state="disabled")
+        self.snipe_buy_btn.pack(side="left")
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
-                 font=FONT_SMALL, anchor="w").grid(row=3, column=0, columnspan=4, sticky="w", pady=(6, 0))
+                 font=FONT_SMALL, anchor="w").grid(row=4, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
     def _build_log(self, shell):
         card = self._card(shell, "运行日志")
@@ -290,7 +311,8 @@ class V4App:
     def on_stop(self):
         if self.runner is not None:
             self.runner.stop()
-        self._sell_stop.set()  # also stop a running duplicate-clear
+        self._sell_stop.set()   # also stop a running duplicate-clear
+        self._snipe_stop.set()  # ...and a running auction snipe
         self._log("已请求停止。")
 
     def _sell_busy(self) -> bool:
@@ -348,6 +370,83 @@ class V4App:
         self._sell_thread = threading.Thread(target=worker, name="v4-gui-sell", daemon=True)
         self._sell_thread.start()
 
+    def _snipe_busy(self) -> bool:
+        return self._snipe_thread is not None and self._snipe_thread.is_alive()
+
+    def on_snipe_dry(self):
+        self._start_snipe(dry_run=True)
+
+    def on_snipe_buy(self):
+        self._start_snipe(dry_run=False)
+
+    def _start_snipe(self, *, dry_run: bool):
+        if not self.runner_ready or self.runner is None:
+            self._log("识别模型还在加载,请稍候。")
+            return
+        if (self.runner.is_running() or self._sell_busy() or self._snipe_busy()):
+            return
+        try:
+            max_cars = max(1, int(self._read_float(self.snipe_max, 1.0)))
+        except Exception:
+            max_cars = 1
+        self._snipe_stop.clear()
+        if dry_run:
+            self._log("抢车[空跑]：走到『车辆详情/买断』就退出,绝不购买(零风险验证)。")
+        else:
+            self._log(f"抢车[真买]：最多买 {max_cars} 辆,只买断不出价,买后自动领取(可随时按停止)。")
+        self._log("请先在游戏里:拍卖场 → 搜索拍卖 → 设好型号/最高买断价 → 确认 → 停在结果页,再点这里。")
+
+        def worker():
+            import time as _t
+            from gamepad import Gamepad
+            from v4.auction_runner import AuctionIO, AuctionSniper
+
+            pad = None
+            try:
+                try:
+                    focus.activate_window(title_substr=config.GAME_TITLE, on_log=self._log)
+                except Exception:
+                    pass
+                _t.sleep(0.6)
+                pad = Gamepad()
+                _t.sleep(0.6)
+                for _ in range(3):  # dismiss a controller-disconnected modal if present
+                    snap = self.runner.recognizer.capture(full_ocr=True, region_ocr=True)
+                    if getattr(snap.v3, "screen", "") != "controller_disconnected":
+                        break
+                    pad.tap("a", hold=0.12)
+                    _t.sleep(1.0)
+                io = AuctionIO(self.runner.recognizer, pad, title=config.GAME_TITLE, on_log=self._log)
+                # Guard: only act when we're actually in the auction house, so a mis-click
+                # can't send stray B-presses wandering through unrelated menus.
+                auction_tags = {"results", "search", "detail", "buyout_confirm", "bid_confirm"}
+                seen = None
+                for _ in range(3):
+                    seen = io.screen()
+                    if seen in auction_tags:
+                        break
+                if seen not in auction_tags:
+                    self._log(f"当前不在拍卖场界面(识别={seen})。请进 拍卖场→搜索拍卖→确认,停在结果页再点。")
+                    return
+                sniper = AuctionSniper(
+                    io, dry_run=dry_run, max_cars=max_cars, on_log=self._log,
+                    stop_event=self._snipe_stop,
+                )
+                result = sniper.run()
+                self._log(f"抢车结束：{result}(已买 {sniper.bought} 辆,尝试 {sniper.searches} 次)")
+            except Exception as exc:
+                self._log(f"抢车出错:{exc}")
+            finally:
+                try:
+                    if pad is not None:
+                        pad.neutral()
+                except Exception:
+                    pass
+                self._log("抢车线程结束。")
+
+        self._snipe_thread = threading.Thread(target=worker, name="v4-gui-snipe", daemon=True)
+        self._snipe_thread.start()
+
     def activate_game(self):
         try:
             focus.activate_window(title_substr=config.GAME_TITLE, on_log=self._log)
@@ -397,10 +496,13 @@ class V4App:
                 self.log.config(state="disabled")
         except queue.Empty:
             pass
-        running = bool(self.runner and self.runner.is_running()) or self._sell_busy()
+        running = (bool(self.runner and self.runner.is_running())
+                   or self._sell_busy() or self._snipe_busy())
         idle_ready = self.runner_ready and not running
         self.start_btn.config(state="normal" if idle_ready else "disabled")
         self.sell_btn.config(state="normal" if idle_ready else "disabled")
+        self.snipe_dry_btn.config(state="normal" if idle_ready else "disabled")
+        self.snipe_buy_btn.config(state="normal" if idle_ready else "disabled")
         self.stop_btn.config(state="normal" if running else "disabled")
         if running:
             self.status_var.set("运行中...")
@@ -413,6 +515,7 @@ class V4App:
             if self.runner is not None:
                 self.runner.stop()
             self._sell_stop.set()
+            self._snipe_stop.set()
         except Exception:
             pass
         self.root.after(150, self.root.destroy)

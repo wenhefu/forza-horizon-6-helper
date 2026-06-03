@@ -30,13 +30,21 @@ try:
 except Exception:
     pass
 
-# The GUI imports the runner lazily inside a worker thread; make sure the whole
-# V4 runner stack is bundled.
+# The GUI imports runners lazily inside worker threads, and mode3_runner imports the V5
+# nav lazily -- PyInstaller can't follow those, so list the whole stack explicitly.
 hiddenimports += [
     "v4.mode3_runner",
     "v4.farm_runner",
     "v4.recognizer",
     "v4.decision",
+    "v4.sell_runner",      # 清理重复22B button (lazy import in gui_v4)
+    "v4.sell_planner",
+    "v4.auction_runner",   # 拍卖场抢车 button (lazy import in gui_v4)
+    "v5.nav_runner",       # V5 event-driven nav toggle (lazy import in mode3_runner)
+    "v5.reactor",
+    "v5.screen_registry",
+    "v5.capture_engine",   # dxcam imported lazily inside -> no dxcam bundle needed
+    "v3.buying_ui",        # skill-point / sell / auction detectors
     "buy_car_runner",
     "smart_runner",
     "single_instance",

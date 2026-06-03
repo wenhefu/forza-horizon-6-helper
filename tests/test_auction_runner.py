@@ -114,14 +114,17 @@ def _sniper(io, **kw):
     return AuctionSniper(io, clock=clk.now, sleeper=clk.sleep, **kw)
 
 
-def test_dry_run_sees_confirm_but_never_buys():
+def test_dry_run_stops_at_detail_never_buys():
+    # Dry-run reaches 车辆详情 (open_buyout) and backs out with B; it never opens the
+    # confirm dialog (which ignores B), so it's zero-risk and never selects/buys.
     io = FakeIO()
     s = _sniper(io, dry_run=True, max_cars=3)
     assert s.run() == "dry_done"
-    assert "confirm_buyout" not in io.calls   # dry-run must NOT confirm a purchase
-    assert "esc" in io.presses                # it backs out after seeing the confirm
-    assert "down" in io.presses               # the buy-out select was pressed once
-    assert io.presses.count("down") == 1      # ...and only once (never bid)
+    assert "open_buyout" in io.calls          # reached the detail screen
+    assert "select_buyout" not in io.calls    # did NOT press down / open the confirm
+    assert "confirm_buyout" not in io.calls   # never bought
+    assert "down" not in io.presses           # no buy-out select in dry-run
+    assert "esc" in io.presses                # backed out (B works on the detail screen)
 
 
 def test_real_run_buys_and_collects():

@@ -21,10 +21,12 @@ import re
 import time
 
 from v3.buying_ui import (
+    detect_auction_collected,
     detect_auction_detail,
     detect_auction_house,
     detect_auction_results,
     detect_auction_search,
+    detect_auction_won,
     detect_bid_confirm,
     detect_buyout_confirm,
     detect_network_warning,
@@ -179,26 +181,30 @@ class AuctionSniper:
         if not self.io.open_buyout():           # Enter (选择) -> 车辆详情 with 竞价/买断 rows
             self.io.press("esc")
             return "recovered"
+        if self.dry_run:
+            # On 车辆详情 with the 买断 row visible. Do NOT open the confirm dialog -- it
+            # ignores B/Esc, so a dry-run couldn't cleanly cancel it. B works HERE
+            # (detail -> results), so backing out is clean and ZERO-risk.
+            self.io.press("esc")
+            self.on_log("抢车[空跑]：已到『车辆详情』、看到买断项,未开确认框(零风险)。")
+            return "dry_seen"
         # select 买断: ONE down (竞价 -> 买断), never retried, then open its confirm dialog.
         self.io.select_buyout(self.buyout_select_delay)
         s = self._wait_for({BUYOUT_CONFIRM, BID_CONFIRM}, 2.5)
+        if s == BUYOUT_CONFIRM:
+            outcome = self.io.confirm_buyout()  # press 嗯 -> buy, observe success/failed
+            if outcome == "bought":
+                self.io.collect()
+                return "bought"
+            return "failed"
         if s == BID_CONFIRM:
-            # The Down didn't land on 买断 -> this is the BID dialog. NEVER confirm. Back out.
-            self.io.press("esc")
-            self.on_log("抢车：出现『竞价』确认框(非买断),已安全退出,未出价。")
+            # The Down dropped -> this is the BID dialog. NEVER confirm; B can't dismiss it
+            # and Down+A risks bidding, so report and let the user back out via 不.
+            self.on_log("抢车：出现『竞价』确认框(非买断),已停手,请手动选『不』退出。")
             return "recovered"
-        if s != BUYOUT_CONFIRM:
-            self.io.press("esc")               # not verified as buy-out -> bail, never confirm
-            return "recovered"
-        if self.dry_run:
-            self.io.press("esc")               # dry-run: saw the buy-out confirm, do NOT buy
-            self.on_log("抢车[空跑]：已识别到『买断』确认框,未购买(空跑)。")
-            return "dry_seen"
-        outcome = self.io.confirm_buyout()      # press 嗯, observe success/failed
-        if outcome == "bought":
-            self.io.collect()
-            return "bought"
-        return "failed"
+        # no confirm appeared -> likely still on 车辆详情; B works there -> back to results.
+        self.io.press("esc")
+        return "recovered"
 
     def run(self) -> str:
         """Loop until max_cars / max_minutes / stop. Returns the stop reason."""
@@ -343,9 +349,31 @@ class AuctionIO:
         return "failed"       # still showing a confirm shape -> uncertain; never re-press
 
     def collect(self) -> None:
-        """No wheelspin on an auction buy -- just settle back to a re-searchable screen."""
+        """Complete the in-game collect flow after a winning buy-out (captured live):
+        拍卖完成/中标 + 领取车辆 --A--> '正在领取...' --> '已加入您的车库' --A(确定)--> --B--> results.
+        Every step is verified and bounded so it can never spin; all presses here are safe
+        (the auction is already won/paid -- no buy or bid is possible)."""
+        # 1. press 领取车辆 (A) on the won-detail screen
+        for _ in range(12):
+            text = self._look()
+            if detect_auction_collected(text)["done"]:
+                break                                   # already at the success popup
+            if detect_auction_won(text)["can_collect"]:
+                self._dbg("  [收] 领取车辆")
+                self.press("enter")                     # A -> 领取车辆
+                break
+            if classify_auction_screen(text) in (RESULTS, SEARCH, HOUSE):
+                return                                  # nothing to collect
+            self._sleep(0.15)
+        # 2. wait through '正在领取...' for the success popup, then 确定 (A)
         for _ in range(20):
-            if classify_auction_screen(self._look()) in (RESULTS, SEARCH, HOUSE, DETAIL):
+            if detect_auction_collected(self._look())["done"]:
+                self._dbg("  [收] 已加入车库 -> 确定")
+                self.press("enter")                     # A -> 确定
+                break
+            self._sleep(0.15)
+        # 3. B back to the results list (B works on the won-detail screen)
+        for _ in range(8):
+            if classify_auction_screen(self._look()) in (RESULTS, SEARCH, HOUSE):
                 return
-            self._sleep(0.1)
-        self.press("esc")
+            self.press("esc")
