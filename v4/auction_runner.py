@@ -121,17 +121,6 @@ class AuctionSniper:
             self.sleeper(0.06)
         return None
 
-    def _esc_toward_search(self) -> bool:
-        """Press B (返回, never confirms) up to a few times until the 搜寻 screen appears.
-        From a confirm/detail screen the search is 2-3 backs away, so one ESC isn't enough."""
-        if self.io.screen() == SEARCH:
-            return True
-        for _ in range(4):
-            self.io.press("esc")
-            if self._wait_for({SEARCH}, 1.5) == SEARCH:
-                return True
-        return self.io.screen() == SEARCH
-
     def run_once(self) -> str:
         """One snipe attempt -- RE-SEARCHES every cycle. Returns:
         bought | no_cars | dry_seen | recovered | failed.
@@ -161,23 +150,31 @@ class AuctionSniper:
             # refuse to touch it -- report and let the user back out via 不 manually.
             self.on_log("抢车：当前停在『竞价』确认框(危险),已停手,请手动选『不』退出。")
             return "recovered"
-        # Take a buyable listing already on the results page first -- this is the validated buy
-        # AND the instant a snipe lands. It also means re-search DEGRADES GRACEFULLY to the
-        # proven path if run_search's 确认-nav still needs live tuning, so the feature can never
-        # regress to "does nothing".
-        if s == RESULTS and self.io.has_listing():
-            return self._buy_out_first()
-        # Otherwise RE-SEARCH for a fresh listing: results don't auto-refresh, so re-fire the
-        # query each cycle while waiting for the target. Stay INSIDE the AH menu (ESC only to
-        # 搜寻, never out to the open world, which would force a multi-second reload).
-        if not self._esc_toward_search():
-            return "recovered"
-        self.io.run_search()                  # navigate to 确认 + press it -> fresh results
-        if self._wait_for({RESULTS}, 6.0) != RESULTS:
+        if s == RESULTS:
+            # A buyable listing already up -> take it (validated buy + the instant a snipe lands).
+            if self.io.has_listing():
+                return self._buy_out_first()
+            # Empty results -> re-search: ONE Back to 搜寻, VERIFIED. If that single Back doesn't
+            # land on 搜寻, DO NOT keep backing out (that's what walked the menu out to free
+            # roam) -- bail and retry next cycle.
+            self.io.press("esc")
+            if self._wait_for({SEARCH}, 2.5) == SEARCH:
+                self.io.run_search()          # 确认 -> fresh query
+                if self._wait_for({RESULTS}, 6.0) == RESULTS and self.io.has_listing():
+                    return self._buy_out_first()
             return "no_cars"
-        if not self.io.has_listing():
-            return "no_cars"                  # target not listed yet -> loop will re-search
-        return self._buy_out_first()
+        if s == SEARCH:
+            self.io.run_search()              # 确认 -> fresh results
+            if self._wait_for({RESULTS}, 6.0) == RESULTS and self.io.has_listing():
+                return self._buy_out_first()
+            return "no_cars"
+        if s == DETAIL:
+            self.io.press("esc")              # one Back -> results; next cycle buys it
+            self._wait_for({RESULTS}, 2.5)
+            return "recovered"
+        # HOUSE / UNKNOWN / anything else: NEVER press Back here. Pressing Back on a screen we
+        # don't recognise is exactly what walked the menu out to free roam. Just wait + re-read.
+        return "recovered"
 
     def _buy_out_first(self) -> str:
         """Buy out the first listing via the captured flow:
