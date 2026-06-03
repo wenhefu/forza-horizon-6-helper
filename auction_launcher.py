@@ -107,6 +107,22 @@ def main():
         max_minutes=args.max_minutes,
         on_log=_log,
     )
+    # Guard: only act when actually in the auction house (no stray B-presses elsewhere).
+    auction_tags = {"results", "search", "detail", "buyout_confirm", "bid_confirm"}
+    seen = None
+    for _ in range(3):
+        seen = io.screen()
+        if seen in auction_tags:
+            break
+    _log(f"当前识别：{seen}")
+    if seen not in auction_tags:
+        _log("不在拍卖场界面(或被弹窗挡住),为安全起见不动作。请进 拍卖场→搜索拍卖→确认,停在结果页再试。")
+        try:
+            pad.neutral()
+        except Exception:
+            pass
+        return
+
     try:
         if mode == "buy":
             _log(f"!!! 真买模式：最多 {args.max_cars} 辆。3 秒后开始，Ctrl+C 取消。")

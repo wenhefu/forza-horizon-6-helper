@@ -354,8 +354,9 @@ class AuctionIO:
         Every step is verified and bounded so it can never spin; all presses here are safe
         (the auction is already won/paid -- no buy or bid is possible)."""
         # 1. press 领取车辆 (A) on the won-detail screen
-        for _ in range(12):
+        for i in range(14):
             text = self._look()
+            self._dbg(f"  [收{i}] OCR: {text[:140]}")
             if detect_auction_collected(text)["done"]:
                 break                                   # already at the success popup
             if detect_auction_won(text)["can_collect"]:
@@ -372,8 +373,9 @@ class AuctionIO:
                 self.press("enter")                     # A -> 确定
                 break
             self._sleep(0.15)
-        # 3. B back to the results list (B works on the won-detail screen)
-        for _ in range(8):
+        # 3. settle back to a list. GENTLE: at most 2 B-presses and stop the instant a list
+        # shows -- pressing too many would back clean out of the auction house.
+        for _ in range(2):
             if classify_auction_screen(self._look()) in (RESULTS, SEARCH, HOUSE):
                 return
             self.press("esc")
