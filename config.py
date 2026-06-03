@@ -18,6 +18,18 @@ SMART_DISCONNECT_MAX_RETRIES = 8
 BUY_POLL_SECONDS = 0.75
 BUY_ACTION_DELAY_SECONDS = 0.75
 BUY_OCR_ENABLED = True
+# Event-driven post-tap waits (speed-up): instead of always sleeping the fixed `after`, watch
+# cheap downscaled frames and continue as soon as the screen has CHANGED then STABILISED,
+# capped at `after` (so the worst case equals the old fixed wait -> no regression). Set
+# BUY_EVENT_DRIVEN_WAITS=False to revert to the proven fixed sleeps. Thresholds are on a
+# 0-255 grayscale mean-abs-diff of an ~80px-wide downscale; conservative defaults err toward
+# waiting (animated/rotating-car screens never "stabilise" and simply wait the cap).
+BUY_EVENT_DRIVEN_WAITS = True
+BUY_SETTLE_FLOOR_SECONDS = 0.12     # min wait so the press registers before we read
+BUY_SETTLE_POLL_SECONDS = 0.03      # cheap frame poll cadence (~30 Hz, no OCR)
+BUY_SETTLE_CHANGE_THRESH = 6.0      # mean-abs-diff vs pre-tap that counts as "screen changed"
+BUY_SETTLE_STABLE_THRESH = 2.0      # mean-abs-diff between consecutive frames that counts as "stable"
+BUY_SETTLE_STABLE_FRAMES = 2        # consecutive stable frames required after a change
 BUY_OCR_MIN_INTERVAL_SECONDS = 1.5
 BUY_OCR_MIN_CONFIDENCE = 0.45
 BUY_OCR_LOG_ITEMS = True

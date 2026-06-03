@@ -179,7 +179,96 @@ class BuyCarRunner:
         self._invalidate_ocr()
         pad.tap(button, hold=hold)
         self._invalidate_ocr()
-        return self._sleep(config.BUY_ACTION_DELAY_SECONDS if after is None else after)
+        cap = config.BUY_ACTION_DELAY_SECONDS if after is None else after
+        return self._settle_after_tap(cap)
+
+    @staticmethod
+    def _frame_diff(a, b):
+        """Mean absolute difference of two small grayscale frames (0-255 scale). Mismatched
+        shapes / errors -> a large value (treated as 'changed', never 'stable')."""
+        try:
+            import numpy as np
+            if a is None or b is None or a.shape != b.shape:
+                return 999.0
+            return float(np.mean(np.abs(a - b)))
+        except Exception:
+            return 999.0
+
+    @staticmethod
+    def _small_gray(frame):
+        """Downscale a captured frame to ~80px-wide grayscale float (cheap change signal)."""
+        try:
+            import numpy as np
+            arr = np.asarray(frame)
+            if arr.ndim == 3:
+                arr = arr[..., :3].mean(axis=2)
+            elif arr.ndim != 2:
+                return None
+            w = arr.shape[1] if arr.ndim == 2 else 0
+            if w > 96:
+                step = max(1, w // 80)
+                arr = arr[::step, ::step]
+            return arr.astype("float32")
+        except Exception:
+            return None
+
+    @staticmethod
+    def _settle_step(pre, last, cur, changed, stable, change_thresh, stable_thresh):
+        """Pure per-frame settle decision (testable). Returns (changed, stable, done):
+        once the frame has CHANGED from the pre-tap frame, count consecutive STABLE frames;
+        done is True the moment we've changed-then-stabilised."""
+        diff = BuyCarRunner._frame_diff
+        if diff(pre, cur) > change_thresh:
+            changed = True
+        if changed and diff(last, cur) <= stable_thresh:
+            stable += 1
+        else:
+            stable = 0
+        return changed, stable, changed and stable >= 1
+
+    def _settle_after_tap(self, cap):
+        """Event-driven replacement for a fixed post-tap wait: after the press, watch cheap
+        downscaled frames (no OCR) and return as soon as the screen has CHANGED from the
+        pre-tap frame and then STABILISED, capped at `cap` (worst case == the old fixed wait,
+        so no regression). Animated screens (rotating car) never stabilise -> they wait the
+        cap. Disable via config.BUY_EVENT_DRIVEN_WAITS. Returns False if stop was requested."""
+        cap = max(0.0, float(cap))
+        if not getattr(config, "BUY_EVENT_DRIVEN_WAITS", True) or cap <= 0.0:
+            return self._sleep(cap)
+        floor = min(getattr(config, "BUY_SETTLE_FLOOR_SECONDS", 0.12), cap)
+        if not self._sleep(floor):
+            return False
+        remaining = cap - floor
+        if remaining <= 0.0:
+            return not self._stop.is_set()
+        change_thresh = getattr(config, "BUY_SETTLE_CHANGE_THRESH", 6.0)
+        stable_thresh = getattr(config, "BUY_SETTLE_STABLE_THRESH", 2.0)
+        need_stable = max(1, int(getattr(config, "BUY_SETTLE_STABLE_FRAMES", 2)))
+        poll = getattr(config, "BUY_SETTLE_POLL_SECONDS", 0.03)
+        try:
+            hwnd = focus.find_window(config.GAME_TITLE)
+            if not hwnd:
+                return self._sleep(remaining)
+            pre = self._small_gray(capture_client(hwnd))
+            last = pre
+            changed = False
+            stable = 0
+            end = time.monotonic() + remaining
+            while time.monotonic() < end:
+                if self._stop.is_set():
+                    return False
+                time.sleep(poll)
+                cur = self._small_gray(capture_client(hwnd))
+                if cur is None:
+                    continue
+                changed, stable, _ = self._settle_step(
+                    pre, last, cur, changed, stable, change_thresh, stable_thresh)
+                if changed and stable >= need_stable:
+                    return not self._stop.is_set()
+                last = cur
+            return not self._stop.is_set()
+        except Exception:
+            return self._sleep(remaining)
 
     def _tap_many(self, pad, button, count, after_each=0.12):
         for _ in range(count):
