@@ -24,6 +24,7 @@ from v3.buying_ui import (
     detect_auction_collected,
     detect_auction_detail,
     detect_auction_house,
+    detect_auction_options,
     detect_auction_results,
     detect_auction_search,
     detect_auction_won,
@@ -132,12 +133,15 @@ class AuctionSniper:
         return self.io.screen() == SEARCH
 
     def run_once(self) -> str:
-        """One snipe attempt. Returns: bought | no_cars | dry_seen | recovered | failed.
+        """One snipe attempt -- RE-SEARCHES every cycle. Returns:
+        bought | no_cars | dry_seen | recovered | failed.
 
-        If we're already on the results list (where the user leaves the game), buy the
-        focused listing directly -- no re-search, so a stray A can never land on the 搜寻
-        form's dropdowns. Only when sitting ON the 搜寻 screen do we press 确认 to (re)run
-        the pre-set search; any other screen backs out toward a known one and retries."""
+        Research (FH5/FH6 OSS snipers + guides) is unanimous: the auction results list does
+        NOT auto-refresh while you sit on it -- new listings only appear on a fresh query. So
+        each cycle we back out to the 搜寻 config and re-fire the search. We stay INSIDE the
+        auction-house menu (ESC only to 搜寻, never out to the open world, which would force a
+        multi-second reload). A tight filter (exact model + 最高买断价) makes any result the
+        target, so a hit is a 1-2 press buy-out."""
         if not self.io.focused():
             return "recovered"
         s = self.io.screen()
@@ -157,19 +161,14 @@ class AuctionSniper:
             # refuse to touch it -- report and let the user back out via 不 manually.
             self.on_log("抢车：当前停在『竞价』确认框(危险),已停手,请手动选『不』退出。")
             return "recovered"
-        if s == DETAIL:
-            self.io.press("esc")              # a backed-out detail view -> one step to results
-            s = self._wait_for({RESULTS}, 3.0) or self.io.screen()
-        if s == SEARCH:
-            self.io.press("enter")            # 确认 -> run the pre-set search
-            if self._wait_for({RESULTS}, 6.0) != RESULTS:
-                return "no_cars"
-            s = RESULTS
-        if s != RESULTS:
-            self._esc_toward_search()         # confirm/house/unknown -> back out, retry
+        # RE-SEARCH: back out to the 搜寻 config (stay in the AH menu) and fire a fresh query.
+        if not self._esc_toward_search():
             return "recovered"
+        self.io.run_search()                  # navigate to 确认 + press it -> fresh results
+        if self._wait_for({RESULTS}, 6.0) != RESULTS:
+            return "no_cars"
         if not self.io.has_listing():
-            return "no_cars"                  # empty/loading/disconnected -> wait, retry
+            return "no_cars"                  # target not listed yet -> loop will re-search
         return self._buy_out_first()
 
     def _buy_out_first(self) -> str:
@@ -325,16 +324,54 @@ class AuctionIO:
         return bool(_PRICE_RE.search(text))
 
     # --- the captured buy-out flow -------------------------------------------
+    def run_search(self) -> None:
+        """On the 搜寻 config screen, navigate to the 确认 button and press it to fire a FRESH
+        query -- the only way new listings appear (the results list never auto-refreshes).
+
+        REFINE-LIVE: the 确认 highlight (selected_item == '确认') is to be confirmed on the
+        live 搜寻 screen (online was down at authoring). Until then: press Down (bounded) until
+        selected_item reads 确认, then A. A mis-press here only toggles a filter field (no
+        credits), and the next cycle re-tries, so it is self-correcting."""
+        for _ in range(7):
+            if "确认" in str(self._last_selected):
+                break
+            self.press("down")
+            self._look()
+        self.press("enter")                          # 确认 -> fresh query
+
+    def _log_buyout_price(self) -> None:
+        m = _BUYOUT_PRICE_RE.search(self._last_text or "")
+        if m:
+            self.on_log(f"抢车：目标买断价 CR {m.group(1)}。")
+
     def open_buyout(self) -> bool:
-        """选择/Enter on the focused results card -> 车辆详情 (竞价 focused, 买断 below)."""
-        self.press("enter")
+        """Open a buy-out-selectable screen for the focused listing.
+
+        FAST path (research): Y opens the 拍卖选项 quick-menu (竞价/买断) WITHOUT the ~3-5s
+        车辆详情 load that loses fast listings. FALLBACK: the proven 选择/Enter -> 车辆详情.
+        Both end with 竞价 (focused, top) / 买断 (below); the caller then does Down-once -> A,
+        and the buy is guarded by the BUY-OUT-vs-BID confirm check -- so even if a screen is
+        misread, the worst case is 'no buy', never a wrong buy or a bid.
+
+        REFINE-LIVE: the Y quick-menu (detect_auction_options) is confirmed live when the
+        auction is reachable; the fallback keeps it working meanwhile."""
+        self.press("y")                              # FAST: Y -> 拍卖选项 quick-menu
+        self._look()
+        self._dbg(f"  [开] Y后 识别={classify_auction_screen(self._last_text)}")
+        if (detect_auction_options(self._last_text)["visible"]
+                or classify_auction_screen(self._last_text) == DETAIL):
+            self._log_buyout_price()
+            return True
+        # Y didn't yield a buy-out menu. If it opened some other recognised screen, close it
+        # back toward the results list so the fallback A lands on a card (not a stray menu).
+        if classify_auction_screen(self._last_text) not in (RESULTS, UNKNOWN):
+            self.press("esc")
+        self.press("enter")                          # FALLBACK: 选择 -> 车辆详情 (validated)
         for _ in range(8):
             tag = classify_auction_screen(self._look())
             self._dbg(f"  [开] 选择后 识别={tag}")
-            if tag == DETAIL:
-                m = _BUYOUT_PRICE_RE.search(self._last_text)
-                if m:
-                    self.on_log(f"抢车：目标买断价 CR {m.group(1)}。")
+            if tag == DETAIL or detect_auction_options(self._last_text)["visible"]:
+                self._log_buyout_price()
                 return True
         return classify_auction_screen(self._last_text) == DETAIL
 

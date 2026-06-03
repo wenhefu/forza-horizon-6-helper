@@ -407,6 +407,22 @@ def detect_buyout_confirm(ocr_text: str) -> dict:
     }
 
 
+def detect_auction_options(ocr_text: str) -> dict:
+    """The Y 'auction options' quick-menu on a results listing -- 竞价 (bid) / 买断 (buy out)
+    (+ maybe 关注/举报), WITHOUT the 车辆详情 stat page. Research (FH6/FH5 snipers) shows the
+    FAST buy-out opens THIS via Y, skipping the ~3-5s 车辆详情 load that loses fast listings.
+
+    REFINE-LIVE: captured tokens to be confirmed once the auction is reachable (online was
+    down at authoring time). Conservative: needs both 竞价 and 买断 and explicitly excludes the
+    results list (拍卖详情), the detail page (车辆详情), the search screen (搜寻) and the
+    confirm/success dialogs, so a false-positive can't reach into the buy path blindly."""
+    text = ocr_text or ""
+    has_both = "竞价" in text and "买断" in text
+    excluded = any(k in text for k in ("拍卖详情", "车辆详情", "搜寻", "买断成功", "确定要买断"))
+    visible = has_both and not excluded
+    return {"visible": visible}
+
+
 def detect_auction_detail(ocr_text: str) -> dict:
     """The single-listing detail screen (车辆详情) reached by 选择/Enter on a results card:
     full car stats + two action rows -- 竞价 (BID, focused by default at the TOP) and 买断

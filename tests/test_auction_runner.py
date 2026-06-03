@@ -74,6 +74,7 @@ class FakeIO:
         self._outcome = outcome
         self._confirm_screen = confirm_screen   # what select_buyout lands on (buyout vs BID)
         self._state = start_state
+        self.run_search_count = 0
 
     def focused(self):
         return self._focused
@@ -87,6 +88,11 @@ class FakeIO:
             self._state = RESULTS
         elif btn == "esc":
             self._state = SEARCH
+
+    def run_search(self):
+        # fire a fresh query from the 搜寻 config -> results (the re-search step)
+        self.run_search_count += 1
+        self._state = RESULTS
 
     def has_listing(self):
         return self._has_listing
@@ -135,14 +141,14 @@ def test_real_run_buys_and_collects():
     assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
 
 
-def test_on_results_buys_directly_without_research():
-    # The game is left ON the results list -> buy the focused listing directly; never press
-    # the search/确认 path (no enter before open_buyout).
+def test_re_searches_every_cycle_even_from_results():
+    # Research: the results list does NOT auto-refresh, so each cycle re-fires the query --
+    # even when the game was left ON results, we back out to 搜寻 and re-search before buying.
     io = FakeIO(start_state=RESULTS, outcome="bought")
     s = _sniper(io, dry_run=False, max_cars=1)
     assert s.run() == "max_cars"
     assert s.bought == 1
-    assert "enter" not in io.presses          # did NOT re-run the search
+    assert io.run_search_count >= 1           # re-searched (did not buy stale results)
     assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
 
 

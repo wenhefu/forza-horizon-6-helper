@@ -6,6 +6,7 @@ from v3.buying_ui import (
     detect_auction_collected,
     detect_auction_detail,
     detect_auction_house,
+    detect_auction_options,
     detect_auction_results,
     detect_auction_search,
     detect_auction_won,
@@ -40,6 +41,20 @@ def test_auction_results_detected():
     assert not detect_auction_results(HOUSE)["visible"]
     # the single-listing detail also carries '拍卖详情' but must NOT read as the list
     assert not detect_auction_results(DETAIL)["visible"]
+
+
+def test_auction_options_quickmenu_disambiguation():
+    # The Y quick-menu (竞价/买断) -- best-guess, REFINE-LIVE. Must NOT fire on screens that
+    # also carry 竞价/买断: the results list (拍卖详情), detail (车辆详情), search (搜寻),
+    # or the confirm/success dialogs.
+    options = "拍卖选项 | 竞价 | 买断 | 关注 | 举报"
+    results_panel = "拍卖场 | 拍卖详情 | PORTOFINO | 已拥有 | 最高竞价 | 240,000 | 买断 | 240,000 | 中标者"
+    assert detect_auction_options(options)["visible"]
+    assert not detect_auction_options(results_panel)["visible"]   # 拍卖详情
+    assert not detect_auction_options(DETAIL)["visible"]          # 车辆详情
+    assert not detect_auction_options(SEARCH)["visible"]          # 搜寻
+    assert not detect_auction_options(BUYOUT_CONFIRM)["visible"]  # 确定要买断
+    assert not detect_auction_options("")["visible"]
 
 
 def test_auction_detail_detected():
