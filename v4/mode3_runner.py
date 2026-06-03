@@ -28,6 +28,7 @@ from v4.decision import (
 from v4.farm_runner import VisionFarmRunner
 from v4.recognizer import V4Recognizer, V4Snapshot
 from v4.watchdog import ProgressWatchdog
+from window_capture import capture_client
 
 
 @dataclass
@@ -632,6 +633,9 @@ class V4Mode3Runner:
 
             if not self._execute_decision(pad, decision, context):
                 return False
+            # Wait for the screen to settle (cheap frame-diff) before the next ~0.7s OCR,
+            # instead of wasting recognitions on mid-transition frames. Accuracy-safe.
+            self._settle_after_press()
 
         self._log("V4 EventLab 导航超过最大时长，已停止，避免继续盲按。")
         return False
@@ -886,6 +890,44 @@ class V4Mode3Runner:
             snapshot.elapsed_ms,
         )
         return snapshot
+
+    def _settle_after_press(self, cap: float = 1.2) -> None:
+        """After a nav key-press, wait CHEAPLY (downscaled-grayscale frame-diff, no OCR) until
+        the screen has changed and then settled, before the NEXT full recognition. This skips
+        wasting ~0.7s OCR on mid-transition/loading frames -- the main nav speed-up.
+
+        Accuracy-safe by construction: it never changes WHAT gets recognised, only WHEN. Worst
+        case (thresholds off / animated screen) it just waits the cap = today's behaviour, and
+        the existing loading_transition handling is the backstop. Reuses the frame-diff helpers
+        validated for the buy phase."""
+        floor, poll = 0.12, 0.04
+        if not self._sleep(floor):
+            return
+        try:
+            hwnd = focus.find_window(self.title)
+            if not hwnd:
+                return
+            pre = BuyCarRunner._small_gray(capture_client(hwnd))
+            last, changed, stable = pre, False, 0
+            end = time.monotonic() + max(0.0, cap - floor)
+            while time.monotonic() < end:
+                if self._stop.is_set():
+                    return
+                time.sleep(poll)
+                cur = BuyCarRunner._small_gray(capture_client(hwnd))
+                if cur is None:
+                    continue
+                if BuyCarRunner._frame_diff(pre, cur) > 6.0:
+                    changed = True
+                if changed and BuyCarRunner._frame_diff(last, cur) <= 2.0:
+                    stable += 1
+                    if stable >= 2:
+                        return
+                else:
+                    stable = 0
+                last = cur
+        except Exception:
+            return
 
     def _recognize_buy_monitor(self) -> V4Snapshot:
         """Semantic heartbeat while V1 BuyCarRunner does the actual buying.

@@ -66,8 +66,7 @@ class V4App:
         self.exit_after_farm = tk.BooleanVar(value=True)
         self.auto_focus = tk.BooleanVar(value=True)
         self.farm_mode = tk.StringVar(value="vision")
-        self.use_v5_nav = tk.BooleanVar(value=False)  # V4 full-path nav is default; V5 auto-nav
-        # could short-circuit to a wrong/false race_menu (skip 创意中心→EventLab→选图/车), so off.
+        # Navigation is the one proven full-path nav (no V4/V5 toggle exposed -- one version).
         # sell-duplicates (Phase B): clear junk 22B copies, keep the favorited farm car
         self.sell_max = tk.StringVar(value="80")
         self.sell_model = tk.StringVar(value="22B")  # car-name substring to clear dups of
@@ -158,7 +157,6 @@ class V4App:
             ("跳过刷图阶段(只到开始赛事菜单)", self.skip_farm),
             ("刷图结束后回收尾到暂停菜单", self.exit_after_farm),
             ("自动切回游戏前台(失焦时尝试)", self.auto_focus),
-            ("导航用 V5 事件驱动(实验·更快但可能跳错页;默认关,用稳定的 V4 完整导航)", self.use_v5_nav),
         ]:
             ttk.Checkbutton(body, text=text, variable=var, style="App.TCheckbutton").grid(
                 row=row, column=0, columnspan=3, sticky="w", pady=5)
@@ -288,7 +286,7 @@ class V4App:
         startup = max(0.0, self._read_float(self.startup_delay, 4.0))
         self.runner.watchdog_seconds = watchdog
         self.runner._farm_mode = self.farm_mode.get()
-        self.runner.nav_mode = "v5" if self.use_v5_nav.get() else "v4"
+        self.runner.nav_mode = "v4"   # one version: the proven full-path nav
         self._log(
             f"开始:farm_mode={self.farm_mode.get()} 跑图={farm_minutes}分钟 完整循环={loop_rounds}轮 看门狗={watchdog:.0f}s "
             f"跳过买车={self.skip_buy.get()} 跳过刷图={self.skip_farm.get()}"
