@@ -689,7 +689,8 @@ class V4Mode3Runner:
         self._log("V4 尝试从赛后/自由漫游回到暂停菜单，为下一轮模式三收尾。")
         watchdog = ProgressWatchdog(timeout_seconds=self.watchdog_seconds, max_recoveries=2)
         phase = "exit_after_farm"
-        for attempt in range(1, 14):
+        unknown_streak = 0
+        for attempt in range(1, 16):
             if not self._ensure_foreground(auto_focus, require_foreground):
                 return False
             snapshot = self._recognize()
@@ -701,6 +702,18 @@ class V4Mode3Runner:
             if str(screen).startswith("pause_") or screen in ("pause_menu", "race_menu", "race_pause_menu"):
                 self._log("V4 已回到可安全交还的菜单。")
                 return True
+            if screen == "unknown":
+                # Don't press B on a single mid-transition mis-read: backing out of a menu we
+                # only momentarily mis-read as unknown is the likely cause of the 收尾 loop.
+                # Wait + re-read; only fall through to a last-resort B once unknown persists.
+                unknown_streak += 1
+                if unknown_streak < 3:
+                    if not self._sleep(0.5):
+                        return False
+                    continue
+                unknown_streak = 0
+            else:
+                unknown_streak = 0
             if screen == "race_result":
                 # Post-race results/standings: advance with A (B does not leave
                 # this page) toward post_race_next / free roam.

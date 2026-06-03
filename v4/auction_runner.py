@@ -161,7 +161,15 @@ class AuctionSniper:
             # refuse to touch it -- report and let the user back out via 不 manually.
             self.on_log("抢车：当前停在『竞价』确认框(危险),已停手,请手动选『不』退出。")
             return "recovered"
-        # RE-SEARCH: back out to the 搜寻 config (stay in the AH menu) and fire a fresh query.
+        # Take a buyable listing already on the results page first -- this is the validated buy
+        # AND the instant a snipe lands. It also means re-search DEGRADES GRACEFULLY to the
+        # proven path if run_search's 确认-nav still needs live tuning, so the feature can never
+        # regress to "does nothing".
+        if s == RESULTS and self.io.has_listing():
+            return self._buy_out_first()
+        # Otherwise RE-SEARCH for a fresh listing: results don't auto-refresh, so re-fire the
+        # query each cycle while waiting for the target. Stay INSIDE the AH menu (ESC only to
+        # 搜寻, never out to the open world, which would force a multi-second reload).
         if not self._esc_toward_search():
             return "recovered"
         self.io.run_search()                  # navigate to 确认 + press it -> fresh results

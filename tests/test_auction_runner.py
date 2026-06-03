@@ -141,15 +141,24 @@ def test_real_run_buys_and_collects():
     assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
 
 
-def test_re_searches_every_cycle_even_from_results():
-    # Research: the results list does NOT auto-refresh, so each cycle re-fires the query --
-    # even when the game was left ON results, we back out to 搜寻 and re-search before buying.
+def test_buys_a_listing_already_up():
+    # A buyable listing already on the results page is taken immediately (validated path /
+    # the instant a snipe lands) -- no extra re-search round-trip needed.
     io = FakeIO(start_state=RESULTS, outcome="bought")
     s = _sniper(io, dry_run=False, max_cars=1)
     assert s.run() == "max_cars"
     assert s.bought == 1
-    assert io.run_search_count >= 1           # re-searched (did not buy stale results)
     assert io.calls == ["open_buyout", "select_buyout", "confirm_buyout", "collect"]
+
+
+def test_re_searches_while_results_empty():
+    # Research: the results list does NOT auto-refresh. While no buyable listing is up, re-fire
+    # the query every cycle (the snipe loop waiting for the target), never park on a stale list.
+    io = FakeIO(start_state=RESULTS, has_listing=False)
+    s = _sniper(io, dry_run=False, max_cars=1, max_minutes=0.02)
+    s.run()
+    assert io.run_search_count >= 1           # re-searched while empty
+    assert s.bought == 0
 
 
 def test_empty_results_is_no_cars_not_a_buy():
