@@ -373,10 +373,11 @@ def detect_auction_search(ocr_text: str) -> dict:
 
 
 def detect_auction_results(ocr_text: str) -> dict:
-    """The 拍卖详情 results screen (after 确认). '拍卖详情' is distinctive; 拍卖选项 is the
-    per-listing Y menu (where Buy Out lives)."""
+    """The 拍卖详情 results LIST screen (after 确认): a column of listing cards + a right
+    detail panel. '拍卖详情' is distinctive. Excludes the single-listing detail view
+    (车辆详情, see detect_auction_detail), which also carries '拍卖详情' but adds car stats."""
     text = ocr_text or ""
-    visible = "拍卖详情" in text
+    visible = "拍卖详情" in text and "车辆详情" not in text
     return {"visible": visible, "has_options": "拍卖选项" in text}
 
 
@@ -404,6 +405,44 @@ def detect_buyout_confirm(ocr_text: str) -> dict:
         "succeeded": "成交" in text or "购买成功" in text,
         "failed": "失败" in text or "已售出" in text or "出价更高" in text,
     }
+
+
+def detect_auction_detail(ocr_text: str) -> dict:
+    """The single-listing detail screen (车辆详情) reached by 选择/Enter on a results card:
+    full car stats + two action rows -- 竞价 (BID, focused by default at the TOP) and 买断
+    (BUY OUT, directly BELOW it). The snipe lands here, then presses Down ONCE (竞价 -> 买断).
+
+    Distinguished from the results LIST (also '拍卖详情' + '买断') by the '车辆详情' pager and
+    a stat label (马力/扭矩/传动系统/排气量); from the search screen by requiring those stats
+    rather than '搜寻'. has_buyout/has_bid say both rows are present (so a Down is meaningful)."""
+    text = ocr_text or ""
+    has_stats = any(k in text for k in ("马力", "扭矩", "传动系统", "排气量"))
+    has_buyout = "买断" in text
+    has_bid = "竞价" in text
+    visible = (
+        "车辆详情" in text and has_stats and has_buyout and has_bid and "搜寻" not in text
+    )
+    return {"visible": visible, "has_buyout": has_buyout, "has_bid": has_bid}
+
+
+def detect_bid_confirm(ocr_text: str) -> dict:
+    """The 竞价 (BID) confirm popup -- the DANGER screen. The snipe must NEVER confirm here:
+    a bid ties up credits and can be outbid; we only ever Buy Out. If a dropped Down on the
+    detail screen leaves 竞价 (not 买断) selected, Enter opens THIS dialog -- the runner detects
+    it and backs out (B) without pressing 嗯. Shape: 竞价 / 是否确定要为该拍卖竞价 CR N？ /
+    如果有人出价高于您...从"我的竞价"取回点数。 / 嗯 / 不."""
+    text = ocr_text or ""
+    visible = "确定要为该拍卖竞价" in text or ("竞价" in text and "取回点数" in text)
+    return {"visible": visible}
+
+
+def detect_network_warning(ocr_text: str) -> dict:
+    """The online-disconnect banner (拍卖场 is an online feature). When shown, buy-outs fail,
+    so the snipe treats results as unbuyable (pauses/backs out) instead of pressing into a
+    dead dialog. Shape: 注意！ / 连接已断开，请稍后再试 / 返回漫游模式才可接受邀请."""
+    text = ocr_text or ""
+    visible = "连接已断开" in text or "请稍后再试" in text
+    return {"visible": visible}
 
 
 def _ocr_text_inside_bbox(items, bbox) -> str:
