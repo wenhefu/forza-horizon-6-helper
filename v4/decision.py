@@ -164,6 +164,23 @@ def looks_like_restart_event_modal(text: str) -> bool:
     )
 
 
+def looks_like_skill_points_modal(text: str) -> bool:
+    """The mastery 'not enough skill points' popup (不够购买额外加成 / 您的技术点数不足以解锁此
+    额外加成). A SAFE single-『确定』dialog the buy phase leaves on screen when skill points run
+    out. Mirrors buy_car_runner._is_points_exhausted_detection's tokens so the nav can DISMISS
+    it (A) instead of freezing on it as a generic modal_warning. Tokens are insufficiency-
+    specific (not the bare '额外加成'), so this never fires on a normal mastery purchase."""
+    normalized = normalize_text(text)
+    return any(
+        token in normalized
+        for token in (
+            "不够购买额外加成",
+            "技术点数不足",
+            "不足以解锁此额外加成",
+        )
+    )
+
+
 def _combined_text(v3: Any, selected_item: str = "") -> str:
     parts = [selected_item]
     for region in getattr(v3, "ocr_regions", []) or []:
@@ -364,6 +381,18 @@ def decide_mode3_navigation(v3: Any, context: RouteContext | None = None) -> V4D
                 "A",
                 "弹窗文字是功能未解锁/当前不可用，且此类弹窗通常只有 OK；按一次 A 只关闭提示，不进入未知流程。",
                 "按后必须重新识别到上一层暂停页或 EventLab 页面；如果回到同一 EventLab 入口，不能再次按 A。",
+                max(confidence, 0.80),
+            )
+        if screen == "modal_warning" and looks_like_skill_points_modal(modal_text):
+            # The buy phase leaves this popup up when skill points run out (after hours of
+            # mastery spends). It can classify as generic modal_warning instead of
+            # skill_points_exhausted -> here it would otherwise freeze as modal_needs_text and
+            # time out. It's a safe single-『确定』dialog; press A to dismiss and keep navigating.
+            return V4Decision(
+                "close_skill_points_modal",
+                "A",
+                "弹窗是『技术点数不足/不够购买额外加成』(买车加点用尽时留下的),只有一个『确定』;按 A 关闭后继续导航。",
+                "按后必须重新识别到 vehicle_mastery、pause_* 或非弹窗页面;回到同一弹窗不要连按。",
                 max(confidence, 0.80),
             )
         return V4Decision(

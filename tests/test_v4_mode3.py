@@ -397,6 +397,35 @@ def test_eventlab_tab_unknown_nudges_to_favorites_then_waits_patiently():
     assert waiting.can_press is False  # patient wait, never a blind press
 
 
+def test_skill_points_modal_left_over_is_dismissed_not_frozen():
+    # The long-running failure: after hours the buy phase leaves the 技术点数不足/不够购买额外加成
+    # popup up; when it classifies as a GENERIC modal_warning (not skill_points_exhausted) the
+    # nav used to freeze (modal_needs_text) and time out -> eventlab_navigation_failed. It must
+    # now press A to dismiss the safe single-『确定』dialog and keep navigating.
+    title = decide_mode3_navigation(
+        fake_v3("modal_warning", selected_item="不够购买额外加成"),
+        RouteContext(),
+    )
+    assert title.name == "close_skill_points_modal"
+    assert title.button == "A"
+
+    body = decide_mode3_navigation(
+        fake_v3("modal_warning", selected_item="您的技术点数不足以解锁此额外加成"),
+        RouteContext(),
+    )
+    assert body.name == "close_skill_points_modal"
+
+
+def test_unknown_modal_still_waits_for_text():
+    # Regression guard: a genuinely-unknown modal must still NEVER be blindly pressed.
+    decision = decide_mode3_navigation(
+        fake_v3("modal_warning", selected_item="某个完全未知的弹窗内容"),
+        RouteContext(),
+    )
+    assert decision.name == "modal_needs_text"
+    assert decision.button == ""
+
+
 def test_eventlab_target_event_and_22b_are_enterable():
     event = decide_mode3_navigation(
         fake_v3("eventlab_favorites", active_tab="我的收藏", selected_item="SP Farm / 24 second race = 10 skillpoints"),
