@@ -63,7 +63,8 @@ class UnownedBuyer:
     ):
         self.io = io
         self.dry_run = dry_run
-        self.max_cars = max(1, int(max_cars))
+        # None = no limit (buy every un-owned car until the grid is empty or stopped).
+        self.max_cars = None if max_cars is None else max(1, int(max_cars))
         self.max_minutes = float(max_minutes)
         self.on_log = on_log or (lambda m: None)
         self.clock = clock
@@ -163,12 +164,13 @@ class UnownedBuyer:
     def run(self) -> str:
         """Loop until max_cars / max_minutes / empty grid / stop. Returns the stop reason."""
         self.started_at = self.clock()
+        limit = "不限" if self.max_cars is None else f"最多 {self.max_cars} 辆"
         self.on_log(
-            f"买未拥有{'[空跑]' if self.dry_run else ''}启动：最多 {self.max_cars} 辆 / "
+            f"买未拥有{'[空跑]' if self.dry_run else ''}启动：{limit} / "
             f"{self.max_minutes:.0f} 分钟。请先停在『车展』车辆网格页。"
         )
         while not self._stopped():
-            if self.bought >= self.max_cars:
+            if self.max_cars is not None and self.bought >= self.max_cars:
                 return "max_cars"
             if (self.clock() - self.started_at) / 60.0 >= self.max_minutes:
                 return "max_minutes"

@@ -19,21 +19,28 @@ import focus
 import window_util
 from driver_check import check_vigembus, open_vigembus_download
 
+# Cohesive dark "Fluent"-style palette: one unified window background (the title bar is darkened
+# via DWM too), subtly-elevated cards, a single green accent + a muted danger for stop actions.
 COLORS = {
-    "bg": "#0f463f",
-    "bg_deep": "#0a302c",
-    "surface": "#f7faf7",
-    "border": "#d5e0d8",
-    "text": "#16211e",
-    "muted": "#60716a",
-    "accent": "#116b5b",
-    "lime": "#b8ff2c",
-    "log_bg": "#071f1c",
-    "log_text": "#d8e8df",
+    "bg": "#181e1b",         # unified window background (header + shell + behind cards)
+    "bg_deep": "#212a25",    # subtle inset panel (tip strip)
+    "surface": "#222a26",    # cards
+    "surface2": "#2b332e",   # inputs / inner controls
+    "border": "#333d37",     # hairline card border
+    "text": "#e8f0ec",       # primary text
+    "muted": "#8ea29a",      # secondary text
+    "accent": "#27a47b",     # primary action
+    "accent_hi": "#2fbe8f",  # primary hover
+    "accent_lo": "#20805f",  # primary pressed / disabled
+    "danger": "#b9554e",     # stop / destructive
+    "danger_hi": "#cb645c",
+    "lime": "#b8ff2c",       # Forza highlight
+    "log_bg": "#11140f",
+    "log_text": "#cfe0d7",
 }
 FONT = ("Microsoft YaHei UI", 11)
-FONT_TITLE = ("Microsoft YaHei UI", 19, "bold")
-FONT_SECTION = ("Microsoft YaHei UI", 13, "bold")
+FONT_TITLE = ("Microsoft YaHei UI", 20, "bold")
+FONT_SECTION = ("Microsoft YaHei UI", 12, "bold")
 FONT_SMALL = ("Microsoft YaHei UI", 9)
 FONT_MONO = ("Consolas", 11)
 REPORT_PATH = Path("reports/v4_mode3_latest.json")
@@ -56,7 +63,7 @@ class V4App:
         self.runner_ready = False
 
         # options
-        self.farm_minutes = tk.StringVar(value="3")
+        self.farm_minutes = tk.StringVar(value="30")
         self.loop_rounds = tk.StringVar(value="0")
         self.max_failures = tk.StringVar(value="3")
         self.watchdog_secs = tk.StringVar(value="180")
@@ -104,26 +111,68 @@ class V4App:
         self.root.after(200, self._refresh_driver)
         self.root.after(300, self._init_runner_async)
         self.root.after(100, self._tick)
+        self._enable_dark_titlebar()
+        self.root.after(60, self._enable_dark_titlebar)  # re-apply once the window is mapped
 
     # -- UI -----------------------------------------------------------------
+    def _enable_dark_titlebar(self):
+        """Darken the native title bar (Win10 1809+/Win11) so the window chrome matches the dark
+        app -- 'the top blends into the program background'. No-op off Windows / on failure."""
+        try:
+            import ctypes
+            hwnd = ctypes.windll.user32.GetParent(self.root.winfo_id())
+            val = ctypes.c_int(1)
+            for attr in (20, 19):   # DWMWA_USE_IMMERSIVE_DARK_MODE (20 = Win11, 19 = older Win10)
+                ctypes.windll.dwmapi.DwmSetWindowAttribute(
+                    hwnd, attr, ctypes.byref(val), ctypes.sizeof(val))
+        except Exception:
+            pass
+
     def _configure_styles(self):
         style = ttk.Style(self.root)
         try:
             style.theme_use("clam")
         except tk.TclError:
             pass
-        style.configure(".", font=FONT)
-        style.configure("App.TButton", padding=(16, 12), background="#e3efe7",
-                        foreground=COLORS["text"], borderwidth=0, font=FONT)
-        style.map("App.TButton", background=[("active", "#d2e6d9"), ("disabled", "#eef3ef")])
+        style.configure(".", font=FONT, background=COLORS["surface"], foreground=COLORS["text"])
+        # Secondary buttons (切回游戏 / 开始清理 / 开始抢车 / 开始买 ...)
+        style.configure("App.TButton", padding=(15, 11), background=COLORS["surface2"],
+                        foreground=COLORS["text"], borderwidth=0, focuscolor=COLORS["surface2"], font=FONT)
+        style.map("App.TButton",
+                  background=[("active", "#36423b"), ("disabled", "#252d29")],
+                  foreground=[("disabled", COLORS["muted"])])
+        # Primary action (开始)
         style.configure("Primary.TButton", padding=(18, 13), background=COLORS["accent"],
-                        foreground="#ffffff", borderwidth=0, font=(FONT[0], FONT[1], "bold"))
-        style.map("Primary.TButton", background=[("active", "#0d5b4d"), ("disabled", "#94aaa2")])
+                        foreground="#ffffff", borderwidth=0, focuscolor=COLORS["accent"],
+                        font=(FONT[0], FONT[1], "bold"))
+        style.map("Primary.TButton",
+                  background=[("active", COLORS["accent_hi"]), ("disabled", "#2a3530")],
+                  foreground=[("disabled", COLORS["muted"])])
+        # Stop / halt buttons
+        style.configure("Stop.TButton", padding=(15, 11), background=COLORS["danger"],
+                        foreground="#ffffff", borderwidth=0, focuscolor=COLORS["danger"], font=FONT)
+        style.map("Stop.TButton",
+                  background=[("active", COLORS["danger_hi"]), ("disabled", "#39302f")],
+                  foreground=[("disabled", COLORS["muted"])])
         style.configure("App.TCheckbutton", background=COLORS["surface"], foreground=COLORS["text"], font=FONT)
-        style.map("App.TCheckbutton", background=[("active", COLORS["surface"])])
+        style.map("App.TCheckbutton", background=[("active", COLORS["surface"])],
+                  foreground=[("disabled", COLORS["muted"])])
         style.configure("App.TRadiobutton", background=COLORS["surface"], foreground=COLORS["text"], font=FONT)
         style.map("App.TRadiobutton", background=[("active", COLORS["surface"])])
-        style.configure("App.TEntry", padding=(8, 7))
+        # Dark input fields (both the App.TEntry rows and the bare ttk.Entry/Combobox)
+        for ent in ("App.TEntry", "TEntry"):
+            style.configure(ent, padding=(8, 7), fieldbackground=COLORS["surface2"],
+                            foreground=COLORS["text"], bordercolor=COLORS["border"],
+                            insertcolor=COLORS["text"], borderwidth=1, relief="flat")
+        style.configure("TCombobox", fieldbackground=COLORS["surface2"], background=COLORS["surface2"],
+                        foreground=COLORS["text"], bordercolor=COLORS["border"], arrowcolor=COLORS["text"],
+                        padding=(8, 6), borderwidth=1, relief="flat")
+        style.map("TCombobox",
+                  fieldbackground=[("readonly", COLORS["surface2"])],
+                  foreground=[("readonly", COLORS["text"])],
+                  selectbackground=[("readonly", COLORS["surface2"])])
+        style.configure("Vertical.TScrollbar", background=COLORS["surface2"], troughcolor=COLORS["bg"],
+                        bordercolor=COLORS["bg"], arrowcolor=COLORS["muted"])
 
     def _card(self, parent, title):
         outer = tk.Frame(parent, bg=COLORS["surface"], padx=18, pady=15,
@@ -140,17 +189,20 @@ class V4App:
 
     def _build_header(self, shell):
         head = tk.Frame(shell, bg=COLORS["bg"])
-        head.grid(row=0, column=0, sticky="we", pady=(0, 8))
-        tk.Label(head, text="V4 视觉制导 · 模式三", bg=COLORS["bg"], fg="#f5fff9",
+        head.grid(row=0, column=0, sticky="we", pady=(2, 10))
+        head.columnconfigure(0, weight=1)
+        tk.Label(head, text="地平线 6 · 自动助手", bg=COLORS["bg"], fg=COLORS["text"],
                  font=FONT_TITLE, anchor="w").grid(row=0, column=0, sticky="w")
-        tk.Label(head, text="买车加点 + EventLab 导航 + 视觉刷图(YOLO/规则识别) + 看门狗",
-                 bg=COLORS["bg"], fg="#c7ddd4", font=FONT, anchor="w").grid(row=1, column=0, sticky="w", pady=(2, 6))
-        guide = tk.Frame(head, bg=COLORS["bg_deep"], padx=12, pady=8)
+        tk.Label(head, text="买车加点 · EventLab 刷图 · 拍卖抢车 · 清理重复 · 买未拥有",
+                 bg=COLORS["bg"], fg=COLORS["muted"], font=FONT_SMALL, anchor="w").grid(
+                     row=1, column=0, sticky="w", pady=(3, 9))
+        guide = tk.Frame(head, bg=COLORS["bg_deep"], padx=13, pady=9)
         guide.grid(row=2, column=0, sticky="we")
-        tk.Label(guide, text="自己开 GUI 跑:点开始后保持 Forza 在前台、别切窗口。窗口模式最稳。",
+        guide.columnconfigure(0, weight=1)
+        tk.Label(guide, text="点开始后让 Forza 保持前台,窗口模式最稳;只发虚拟手柄输入,不注入游戏。",
                  bg=COLORS["bg_deep"], fg=COLORS["lime"], font=FONT_SMALL, anchor="w").grid(row=0, column=0, sticky="w")
-        tk.Label(guide, textvariable=self.driver_status, bg=COLORS["bg_deep"], fg="#d8e8df",
-                 font=FONT_SMALL, anchor="w").grid(row=1, column=0, sticky="w", pady=(4, 0))
+        tk.Label(guide, textvariable=self.driver_status, bg=COLORS["bg_deep"], fg=COLORS["muted"],
+                 font=FONT_SMALL, anchor="w").grid(row=1, column=0, sticky="w", pady=(3, 0))
 
     def _build_options(self, shell):
         card = self._card(shell, "运行选项")
@@ -158,29 +210,11 @@ class V4App:
         body = card.body
         body.columnconfigure(1, weight=1)
         self._field(body, 0, "跑图时间(分钟)", self.farm_minutes, "每轮刷图;0=一直跑")
-        self._field(body, 1, "完整循环轮数", self.loop_rounds, "1=一轮;0=无限循环(自动开回收尾)")
-        self._field(body, 2, "连续失败上限", self.max_failures, "循环时连续失败超过此次数才停")
-        self._field(body, 3, "看门狗(秒)", self.watchdog_secs, "某阶段卡死超过此秒数自动停")
-        self._field(body, 4, "启动倒计时(秒)", self.startup_delay, "点开始后留时间切回游戏")
-        row = 5
-        for text, var in [
-            ("跳过买车阶段(从当前页直接导航去刷图)", self.skip_buy),
-            ("跳过刷图阶段(只到开始赛事菜单)", self.skip_farm),
-            ("刷图结束后回收尾到暂停菜单", self.exit_after_farm),
-            ("自动切回游戏前台(失焦时尝试)", self.auto_focus),
-        ]:
-            ttk.Checkbutton(body, text=text, variable=var, style="App.TCheckbutton").grid(
-                row=row, column=0, columnspan=3, sticky="w", pady=5)
-            row += 1
-        fm = tk.Frame(body, bg=COLORS["surface"])
-        fm.grid(row=row, column=0, columnspan=3, sticky="w", pady=(4, 0))
-        tk.Label(fm, text="刷图引擎:", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).grid(row=0, column=0, sticky="w")
-        ttk.Radiobutton(fm, text="视觉制导(推荐)", variable=self.farm_mode, value="vision",
-                        style="App.TRadiobutton").grid(row=0, column=1, sticky="w", padx=(8, 0))
-        ttk.Radiobutton(fm, text="V1 SmartRunner(兜底)", variable=self.farm_mode, value="smart",
-                        style="App.TRadiobutton").grid(row=0, column=2, sticky="w", padx=(8, 0))
+        self._field(body, 1, "启动倒计时(秒)", self.startup_delay, "点开始后留时间切回游戏")
+        # The rest (循环轮数=0 无限 / 连续失败上限 / 看门狗 / 跳过买车·刷图 / 回收尾 / 自动切回 /
+        # 刷图引擎) stay at their sensible defaults and are no longer exposed -- cleaner UI.
         om = tk.Frame(body, bg=COLORS["surface"])
-        om.grid(row=row + 1, column=0, columnspan=3, sticky="w", pady=(4, 0))
+        om.grid(row=2, column=0, columnspan=3, sticky="w", pady=(6, 0))
         tk.Label(om, text="循环顺序:", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).grid(row=0, column=0, sticky="w")
         ttk.Radiobutton(om, text="先买车再跑图(默认)", variable=self.loop_order, value="buy_first",
                         style="App.TRadiobutton").grid(row=0, column=1, sticky="w", padx=(8, 0))
@@ -204,7 +238,7 @@ class V4App:
             body.columnconfigure(c, weight=1, uniform="act")
         self.start_btn = ttk.Button(body, text="开始", command=self.on_start, style="Primary.TButton", state="disabled")
         self.start_btn.grid(row=0, column=0, sticky="we", padx=(0, 6))
-        self.stop_btn = ttk.Button(body, text="停止", command=self.on_stop, style="App.TButton", state="disabled")
+        self.stop_btn = ttk.Button(body, text="停止", command=self.on_stop, style="Stop.TButton", state="disabled")
         self.stop_btn.grid(row=0, column=1, sticky="we", padx=6)
         ttk.Button(body, text="切回游戏", command=self.activate_game, style="App.TButton").grid(row=0, column=2, sticky="we", padx=6)
         ttk.Button(body, text="打开报告", command=self.open_report, style="App.TButton").grid(row=0, column=3, sticky="we", padx=(6, 0))
@@ -218,70 +252,47 @@ class V4App:
                      width=10, state="readonly").pack(side="left", padx=(8, 8))
         ttk.Button(winrow, text="把地平线调成 16:9", command=self.resize_game_window,
                    style="App.TButton").pack(side="left")
-        # Sell-duplicates: clear junk 22B copies (keeps the favorited/driving farm car,
-        # verifies the remove-confirm dialog before each deletion). Start from My Vehicles
-        # or the pause menu; it navigates the rest.
+        # Sell-duplicates: clear junk copies of a model (keeps the favorited/driving car, verifies
+        # the remove-confirm before each delete). Start from My Vehicles / the pause menu. No count
+        # cap -- it sweeps all duplicates; 停止 halts.
         sellrow = tk.Frame(body, bg=COLORS["surface"])
-        sellrow.grid(row=2, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        sellrow.grid(row=2, column=0, columnspan=4, sticky="we", pady=(12, 0))
         tk.Label(sellrow, text="清理重复车(留收藏/在驾驶的):", bg=COLORS["surface"], fg=COLORS["text"], font=FONT).pack(side="left")
-        tk.Label(sellrow, text="车名含", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
+        tk.Label(sellrow, text="车名含", bg=COLORS["surface"], fg=COLORS["muted"], font=FONT_SMALL).pack(side="left", padx=(10, 3))
         ttk.Entry(sellrow, textvariable=self.sell_model, width=10).pack(side="left")
-        tk.Label(sellrow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
-        ttk.Entry(sellrow, textvariable=self.sell_max, width=5).pack(side="left")
-        tk.Label(sellrow, text="辆", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(2, 8))
         self.sell_btn = ttk.Button(sellrow, text="开始清理", command=self.on_clear_duplicates,
                                    style="App.TButton", state="disabled")
-        self.sell_btn.pack(side="left")
-        # Auction-house snipe (Phase C). The USER sets the search filter in-game and STOPS ON
-        # THE 搜寻 (search-config) page; the snipe RE-SEARCHES each cycle (确认 -> read results
-        # -> buy 买断 if the target is there, else back to 搜寻 and search again), because the
-        # results list never auto-refreshes. "空跑验证" rehearses with zero spend; "开始抢车"
-        # buys 买断 (never 竞价/bid); "停止抢车" (or the global 停止) halts it.
+        self.sell_btn.pack(side="left", padx=(10, 6))
+        self.sell_stop_btn = ttk.Button(sellrow, text="停止", command=self.on_sell_stop,
+                                        style="Stop.TButton", state="disabled")
+        self.sell_stop_btn.pack(side="left")
+        # Auction-house snipe: the USER pre-sets a tight search and STOPS ON the 搜寻 page; it
+        # re-searches each cycle and buys 买断 (never 竞价/bid) until stopped.
         sniperow = tk.Frame(body, bg=COLORS["surface"])
-        sniperow.grid(row=3, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        sniperow.grid(row=3, column=0, columnspan=4, sticky="we", pady=(12, 0))
         tk.Label(sniperow, text="拍卖场抢车(停在『搜寻』页、过滤设紧):", bg=COLORS["surface"],
                  fg=COLORS["text"], font=FONT).pack(side="left")
-        tk.Label(sniperow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
-        ttk.Entry(sniperow, textvariable=self.snipe_max, width=4).pack(side="left")
-        tk.Label(sniperow, text="辆", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(2, 8))
-        self.snipe_dry_btn = ttk.Button(sniperow, text="空跑验证", command=self.on_snipe_dry,
-                                        style="App.TButton", state="disabled")
-        self.snipe_dry_btn.pack(side="left", padx=(0, 6))
         self.snipe_buy_btn = ttk.Button(sniperow, text="开始抢车", command=self.on_snipe_buy,
                                         style="App.TButton", state="disabled")
-        self.snipe_buy_btn.pack(side="left", padx=(0, 6))
-        self.snipe_stop_btn = ttk.Button(sniperow, text="停止抢车", command=self.on_snipe_stop,
-                                         style="App.TButton", state="disabled")
+        self.snipe_buy_btn.pack(side="left", padx=(10, 6))
+        self.snipe_stop_btn = ttk.Button(sniperow, text="停止", command=self.on_snipe_stop,
+                                         style="Stop.TButton", state="disabled")
         self.snipe_stop_btn.pack(side="left")
-        # Experimental speed toggles (OFF by default; flip on to live-test when the auction's up).
-        snipefx = tk.Frame(body, bg=COLORS["surface"])
-        snipefx.grid(row=4, column=0, columnspan=4, sticky="we", pady=(2, 0))
-        ttk.Checkbutton(snipefx, text="快速买断(Y菜单·跳详情页·实验)", variable=self.snipe_fast,
-                        style="App.TCheckbutton").pack(side="left")
-        ttk.Checkbutton(snipefx, text="变化才识别(更快·实验)", variable=self.snipe_roc,
-                        style="App.TCheckbutton").pack(side="left", padx=(12, 0))
-        # Buy-all-unowned (autoshow 车展): apply the 未拥有 filter, then loop-buy the un-owned
-        # cars (re-applying the filter each cycle -- it resets on re-entry). The USER stops on the
-        # 车展 vehicle grid; "空跑验证" walks to the buy dialog and CANCELS (zero spend); "开始买"
-        # buys; "停止" halts. Flow validated live (one real purchase) + reuses the 22B buy sub-flow.
+        # Buy-all-unowned (autoshow 车展): apply the 未拥有 filter, then loop-buy EVERY un-owned car
+        # (re-applying the filter each cycle -- it resets on re-entry) until the grid is empty or
+        # stopped. The USER stops on the 车展 vehicle grid.
         unownedrow = tk.Frame(body, bg=COLORS["surface"])
-        unownedrow.grid(row=5, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        unownedrow.grid(row=4, column=0, columnspan=4, sticky="we", pady=(12, 0))
         tk.Label(unownedrow, text="买未拥有的车(停在『车展』网格页):", bg=COLORS["surface"],
                  fg=COLORS["text"], font=FONT).pack(side="left")
-        tk.Label(unownedrow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
-        ttk.Entry(unownedrow, textvariable=self.unowned_max, width=4).pack(side="left")
-        tk.Label(unownedrow, text="辆", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(2, 8))
-        self.unowned_dry_btn = ttk.Button(unownedrow, text="空跑验证", command=self.on_unowned_dry,
-                                          style="App.TButton", state="disabled")
-        self.unowned_dry_btn.pack(side="left", padx=(0, 6))
         self.unowned_buy_btn = ttk.Button(unownedrow, text="开始买", command=self.on_unowned_buy,
                                           style="App.TButton", state="disabled")
-        self.unowned_buy_btn.pack(side="left", padx=(0, 6))
+        self.unowned_buy_btn.pack(side="left", padx=(10, 6))
         self.unowned_stop_btn = ttk.Button(unownedrow, text="停止", command=self.on_unowned_stop,
-                                           style="App.TButton", state="disabled")
+                                           style="Stop.TButton", state="disabled")
         self.unowned_stop_btn.pack(side="left")
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
-                 font=FONT_SMALL, anchor="w").grid(row=6, column=0, columnspan=4, sticky="w", pady=(6, 0))
+                 font=FONT_SMALL, anchor="w").grid(row=5, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
     def _build_log(self, shell):
         card = self._card(shell, "运行日志")
@@ -289,8 +300,16 @@ class V4App:
         card.body.rowconfigure(0, weight=1)
         self.log = scrolledtext.ScrolledText(card.body, width=74, height=12, state="disabled",
                                              font=FONT_MONO, bg=COLORS["log_bg"], fg=COLORS["log_text"],
-                                             relief="flat", bd=0, padx=10, pady=8)
+                                             relief="flat", bd=0, padx=10, pady=8,
+                                             insertbackground=COLORS["log_text"],
+                                             selectbackground=COLORS["surface2"], selectforeground=COLORS["text"])
         self.log.grid(row=0, column=0, sticky="nsew")
+        try:   # dark-style the built-in scrollbar to match
+            self.log.vbar.config(background=COLORS["surface2"], troughcolor=COLORS["log_bg"],
+                                 activebackground=COLORS["border"], borderwidth=0,
+                                 highlightthickness=0, width=12)
+        except Exception:
+            pass
 
     # -- runner wiring ------------------------------------------------------
     def _log(self, msg: str):
@@ -372,19 +391,20 @@ class V4App:
     def _sell_busy(self) -> bool:
         return self._sell_thread is not None and self._sell_thread.is_alive()
 
+    def on_sell_stop(self):
+        self._sell_stop.set()
+        self._log("清理重复车：已请求停止(当前这步走完就停)。")
+
     def on_clear_duplicates(self):
         if not self.runner_ready or self.runner is None:
             self._log("识别模型还在加载,请稍候。")
             return
         if self.runner.is_running() or self._sell_busy():
             return
-        try:
-            max_sell = max(1, int(self._read_float(self.sell_max, 80.0)))
-        except Exception:
-            max_sell = 80
+        max_sell = 99999   # no cap: sweep ALL duplicates (favorited/driving car kept; 停止 halts)
         model = (self.sell_model.get() or "").strip() or "22B"
         self._sell_stop.clear()
-        self._log(f"开始清理重复「{model}」：最多删 {max_sell} 辆,跳过收藏/正在驾驶的那辆,删前核对确认框(可随时按停止)。")
+        self._log(f"开始清理重复「{model}」：清理所有重复(留收藏/正在驾驶的那辆),删前核对确认框,可随时按停止。")
         self._log("请先在游戏里打开「我的车辆」(暂停→车辆→更换车辆),或停在 车辆 标签页,再点开始清理。")
 
         def worker():
@@ -443,23 +463,13 @@ class V4App:
             return
         if (self.runner.is_running() or self._sell_busy() or self._snipe_busy()):
             return
-        try:
-            max_cars = max(1, int(self._read_float(self.snipe_max, 1.0)))
-        except Exception:
-            max_cars = 1
+        max_cars = None   # no cap -- keep sniping until 停止
         self._snipe_stop.clear()
         # Clear, correct start-page guidance (the snipe RE-SEARCHES every cycle).
         self._log("【抢车怎么用】① 进 拍卖场 → 搜索拍卖；② 设好 车厂+型号+最高买断价(设紧,只让目标车出现)；")
         self._log("　 ③ 把光标放到『确认』上,停在这个『搜寻』配置页(不用自己按确认);④ 再点这里。")
         self._log("　 它会自动:确认→看结果→有目标就买断,没有就退回搜寻再搜,如此循环(结果页不会自己刷新)。")
-        if dry_run:
-            self._log("抢车[空跑]：只走到看到『买断』就退出,绝不购买(零风险验证一遍流程)。")
-        else:
-            self._log(f"抢车[真买]：最多买 {max_cars} 辆,只买断不出价(误入竞价框会停手);随时按『停止抢车』。")
-        if self.snipe_fast.get():
-            self._log("抢车：已开启『快速买断』(Y菜单跳详情页·实验)——若快捷菜单没识别到会自动退回稳妥路径。")
-        if self.snipe_roc.get():
-            self._log("抢车：已开启『变化才识别』(画面没变就不重复OCR·实验)。")
+        self._log("抢车：不限数量,只买断不出价(误入竞价框会停手);随时按『停止』。")
 
         def worker():
             import time as _t
@@ -534,17 +544,11 @@ class V4App:
             return
         if (self.runner.is_running() or self._sell_busy() or self._snipe_busy() or self._unowned_busy()):
             return
-        try:
-            max_cars = max(1, int(self._read_float(self.unowned_max, 5.0)))
-        except Exception:
-            max_cars = 5
+        max_cars = None   # no cap -- buy EVERY un-owned car until the grid is empty or 停止
         self._unowned_stop.clear()
         self._log("【买未拥有怎么用】① 进 车辆→购买车与二手车→车展,停在车辆网格页(看得到一格格车);② 再点这里。")
         self._log("　 它会自动:按 Y 开筛选→勾上『未拥有』→返回→买下第一辆,如此循环(每轮重开筛选,因为筛选会重置)。")
-        if dry_run:
-            self._log("买未拥有[空跑]：只走到『购买确认』就按 B 取消,绝不花钱(零风险验证一遍流程)。")
-        else:
-            self._log(f"买未拥有[真买]：最多买 {max_cars} 辆未拥有的车;会花真金白银,随时按『停止』。")
+        self._log("买未拥有：买下所有未拥有的车,会花真金白银,随时按『停止』。")
 
         def worker():
             import time as _t
@@ -651,10 +655,9 @@ class V4App:
         idle_ready = self.runner_ready and not running
         self.start_btn.config(state="normal" if idle_ready else "disabled")
         self.sell_btn.config(state="normal" if idle_ready else "disabled")
-        self.snipe_dry_btn.config(state="normal" if idle_ready else "disabled")
+        self.sell_stop_btn.config(state="normal" if self._sell_busy() else "disabled")
         self.snipe_buy_btn.config(state="normal" if idle_ready else "disabled")
         self.snipe_stop_btn.config(state="normal" if self._snipe_busy() else "disabled")
-        self.unowned_dry_btn.config(state="normal" if idle_ready else "disabled")
         self.unowned_buy_btn.config(state="normal" if idle_ready else "disabled")
         self.unowned_stop_btn.config(state="normal" if self._unowned_busy() else "disabled")
         self.stop_btn.config(state="normal" if running else "disabled")

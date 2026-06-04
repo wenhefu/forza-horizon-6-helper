@@ -121,6 +121,14 @@ def test_stops_at_max_cars():
     assert b.bought == 3
 
 
+def test_unlimited_max_cars_buys_until_grid_empty():
+    # max_cars=None (the GUI default now) = no cap: buy every un-owned car, then stop on empty.
+    io = FakeIO(unowned=4)
+    b = _buyer(io, dry_run=False, max_cars=None)
+    assert b.run() == "no_more_cars"
+    assert b.bought == 4
+
+
 def test_filter_is_reapplied_every_cycle_before_buying():
     # The 未拥有 filter resets on grid re-entry, so it must be applied once per buy cycle and
     # ALWAYS before the buy (never buy an unfiltered grid).
