@@ -40,6 +40,7 @@ hiddenimports += [
     "v4.sell_runner",      # 清理重复22B button (lazy import in gui_v4)
     "v4.sell_planner",
     "v4.auction_runner",   # 拍卖场抢车 button (lazy import in gui_v4)
+    "v4.unowned_buyer",    # 买未拥有的车 button (lazy import in gui_v4)
     "v5.nav_runner",       # V5 event-driven nav toggle (lazy import in mode3_runner)
     "v5.reactor",
     "v5.screen_registry",

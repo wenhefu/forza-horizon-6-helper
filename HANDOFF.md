@@ -1,5 +1,18 @@
 # Handoff - Forza Horizon 6 Helper
 
+## Build & test (2026-06-05)
+
+- **「买未拥有的车」row (autoshow 车展) — NEW.** `v4/unowned_buyer.py` (UnownedBuyer + UnownedBuyIO,
+  mirrors the auction pattern; injectable IO, unit-tested). Loop: on the 车展 vehicle grid, press
+  **Y → filter → Down,Down (未拥有) → A (勾选) → B (关闭)**, then **A** to buy the focused un-owned car
+  through the SAME validated 22B buy sub-flow (推荐设计 **Y** → 出厂颜色 **A** → 车辆预览 **A** →
+  购买确认 **A**), then back out (**B,B** → 购买与出售 → **A** 车展, slow load) and **re-apply the
+  filter** (it RESETS on grid re-entry — validated live). Flow mapped by **driving the game myself**
+  (one real purchase validated end-to-end: M12S Warthog, CR 850k). GUI: 空跑验证 (walks to the buy
+  dialog and CANCELS, zero spend) / 开始买 / 停止 + max-count. Only ever buys on the FILTERED grid;
+  stops at max / empty grid / stop. `v4.unowned_buyer` added to the spec hiddenimports. Dev tool:
+  `explore_session.py` (persistent-pad live stepper, command-file driven).
+
 ## Build & test (2026-06-04)
 
 Latest changes on top of 2026-06-03 below:

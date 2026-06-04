@@ -83,6 +83,10 @@ class V4App:
         self.snipe_roc = tk.BooleanVar(value=False)
         self._snipe_thread = None
         self._snipe_stop = threading.Event()
+        # buy-all-unowned (autoshow 车展)
+        self.unowned_max = tk.StringVar(value="5")   # max un-owned cars to buy per run
+        self._unowned_thread = None
+        self._unowned_stop = threading.Event()
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
         self.status_var = tk.StringVar(value="正在加载识别模型...")
@@ -256,8 +260,28 @@ class V4App:
                         style="App.TCheckbutton").pack(side="left")
         ttk.Checkbutton(snipefx, text="变化才识别(更快·实验)", variable=self.snipe_roc,
                         style="App.TCheckbutton").pack(side="left", padx=(12, 0))
+        # Buy-all-unowned (autoshow 车展): apply the 未拥有 filter, then loop-buy the un-owned
+        # cars (re-applying the filter each cycle -- it resets on re-entry). The USER stops on the
+        # 车展 vehicle grid; "空跑验证" walks to the buy dialog and CANCELS (zero spend); "开始买"
+        # buys; "停止" halts. Flow validated live (one real purchase) + reuses the 22B buy sub-flow.
+        unownedrow = tk.Frame(body, bg=COLORS["surface"])
+        unownedrow.grid(row=5, column=0, columnspan=4, sticky="we", pady=(8, 0))
+        tk.Label(unownedrow, text="买未拥有的车(停在『车展』网格页):", bg=COLORS["surface"],
+                 fg=COLORS["text"], font=FONT).pack(side="left")
+        tk.Label(unownedrow, text="最多", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(8, 2))
+        ttk.Entry(unownedrow, textvariable=self.unowned_max, width=4).pack(side="left")
+        tk.Label(unownedrow, text="辆", bg=COLORS["surface"], fg=COLORS["text"], font=FONT_SMALL).pack(side="left", padx=(2, 8))
+        self.unowned_dry_btn = ttk.Button(unownedrow, text="空跑验证", command=self.on_unowned_dry,
+                                          style="App.TButton", state="disabled")
+        self.unowned_dry_btn.pack(side="left", padx=(0, 6))
+        self.unowned_buy_btn = ttk.Button(unownedrow, text="开始买", command=self.on_unowned_buy,
+                                          style="App.TButton", state="disabled")
+        self.unowned_buy_btn.pack(side="left", padx=(0, 6))
+        self.unowned_stop_btn = ttk.Button(unownedrow, text="停止", command=self.on_unowned_stop,
+                                           style="App.TButton", state="disabled")
+        self.unowned_stop_btn.pack(side="left")
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
-                 font=FONT_SMALL, anchor="w").grid(row=5, column=0, columnspan=4, sticky="w", pady=(6, 0))
+                 font=FONT_SMALL, anchor="w").grid(row=6, column=0, columnspan=4, sticky="w", pady=(6, 0))
 
     def _build_log(self, shell):
         card = self._card(shell, "运行日志")
@@ -342,6 +366,7 @@ class V4App:
             self.runner.stop()
         self._sell_stop.set()   # also stop a running duplicate-clear
         self._snipe_stop.set()  # ...and a running auction snipe
+        self._unowned_stop.set()  # ...and a running buy-all-unowned
         self._log("已请求停止。")
 
     def _sell_busy(self) -> bool:
@@ -490,6 +515,88 @@ class V4App:
         self._snipe_thread = threading.Thread(target=worker, name="v4-gui-snipe", daemon=True)
         self._snipe_thread.start()
 
+    def _unowned_busy(self) -> bool:
+        return self._unowned_thread is not None and self._unowned_thread.is_alive()
+
+    def on_unowned_dry(self):
+        self._start_unowned(dry_run=True)
+
+    def on_unowned_buy(self):
+        self._start_unowned(dry_run=False)
+
+    def on_unowned_stop(self):
+        self._unowned_stop.set()
+        self._log("买未拥有：已请求停止(当前这步走完就停)。")
+
+    def _start_unowned(self, *, dry_run: bool):
+        if not self.runner_ready or self.runner is None:
+            self._log("识别模型还在加载,请稍候。")
+            return
+        if (self.runner.is_running() or self._sell_busy() or self._snipe_busy() or self._unowned_busy()):
+            return
+        try:
+            max_cars = max(1, int(self._read_float(self.unowned_max, 5.0)))
+        except Exception:
+            max_cars = 5
+        self._unowned_stop.clear()
+        self._log("【买未拥有怎么用】① 进 车辆→购买车与二手车→车展,停在车辆网格页(看得到一格格车);② 再点这里。")
+        self._log("　 它会自动:按 Y 开筛选→勾上『未拥有』→返回→买下第一辆,如此循环(每轮重开筛选,因为筛选会重置)。")
+        if dry_run:
+            self._log("买未拥有[空跑]：只走到『购买确认』就按 B 取消,绝不花钱(零风险验证一遍流程)。")
+        else:
+            self._log(f"买未拥有[真买]：最多买 {max_cars} 辆未拥有的车;会花真金白银,随时按『停止』。")
+
+        def worker():
+            import time as _t
+            from gamepad import Gamepad
+            from v4.unowned_buyer import GRID, UnownedBuyIO, UnownedBuyer
+
+            pad = None
+            try:
+                try:
+                    focus.activate_window(title_substr=config.GAME_TITLE, on_log=self._log)
+                except Exception:
+                    pass
+                _t.sleep(0.6)
+                pad = Gamepad()
+                _t.sleep(0.6)
+                for _ in range(3):  # dismiss a controller-disconnected modal if present
+                    snap = self.runner.recognizer.capture(full_ocr=True, region_ocr=True)
+                    if getattr(snap.v3, "screen", "") != "controller_disconnected":
+                        break
+                    pad.tap("a", hold=0.12)
+                    _t.sleep(1.0)
+                io = UnownedBuyIO(self.runner.recognizer, pad, title=config.GAME_TITLE,
+                                  on_log=self._log, stop_event=self._unowned_stop)
+                # Guard: only act on the showroom vehicle grid, so a mis-click can't wander/buy
+                # through unrelated menus.
+                seen = None
+                for _ in range(3):
+                    seen = io.screen()
+                    if seen == GRID:
+                        break
+                if seen != GRID:
+                    self._log(f"当前不在『车展』车辆网格页(识别={seen})。请进 车辆→购买车与二手车→车展,停在网格页再点。")
+                    return
+                buyer = UnownedBuyer(
+                    io, dry_run=dry_run, max_cars=max_cars, on_log=self._log,
+                    stop_event=self._unowned_stop, auto_focus=self.auto_focus.get(),
+                )
+                result = buyer.run()
+                self._log(f"买未拥有结束：{result}(已买 {buyer.bought} 辆)")
+            except Exception as exc:
+                self._log(f"买未拥有出错:{exc}")
+            finally:
+                try:
+                    if pad is not None:
+                        pad.neutral()
+                except Exception:
+                    pass
+                self._log("买未拥有线程结束。")
+
+        self._unowned_thread = threading.Thread(target=worker, name="v4-gui-unowned", daemon=True)
+        self._unowned_thread.start()
+
     def activate_game(self):
         try:
             focus.activate_window(title_substr=config.GAME_TITLE, on_log=self._log)
@@ -540,13 +647,16 @@ class V4App:
         except queue.Empty:
             pass
         running = (bool(self.runner and self.runner.is_running())
-                   or self._sell_busy() or self._snipe_busy())
+                   or self._sell_busy() or self._snipe_busy() or self._unowned_busy())
         idle_ready = self.runner_ready and not running
         self.start_btn.config(state="normal" if idle_ready else "disabled")
         self.sell_btn.config(state="normal" if idle_ready else "disabled")
         self.snipe_dry_btn.config(state="normal" if idle_ready else "disabled")
         self.snipe_buy_btn.config(state="normal" if idle_ready else "disabled")
         self.snipe_stop_btn.config(state="normal" if self._snipe_busy() else "disabled")
+        self.unowned_dry_btn.config(state="normal" if idle_ready else "disabled")
+        self.unowned_buy_btn.config(state="normal" if idle_ready else "disabled")
+        self.unowned_stop_btn.config(state="normal" if self._unowned_busy() else "disabled")
         self.stop_btn.config(state="normal" if running else "disabled")
         if running:
             self.status_var.set("运行中...")
