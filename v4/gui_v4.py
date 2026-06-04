@@ -12,7 +12,7 @@ import queue
 import threading
 import tkinter as tk
 from pathlib import Path
-from tkinter import scrolledtext, ttk
+from tkinter import ttk
 
 import config
 import focus
@@ -38,21 +38,22 @@ COLORS = {
     "log_bg": "#11140f",
     "log_text": "#cfe0d7",
 }
-FONT = ("Microsoft YaHei UI", 11)
-FONT_TITLE = ("Microsoft YaHei UI", 20, "bold")
-FONT_SECTION = ("Microsoft YaHei UI", 12, "bold")
-FONT_SMALL = ("Microsoft YaHei UI", 9)
-FONT_MONO = ("Consolas", 11)
+FONT = ("Microsoft YaHei UI", 13)
+FONT_TITLE = ("Microsoft YaHei UI", 24, "bold")
+FONT_SECTION = ("Microsoft YaHei UI", 15, "bold")
+FONT_SMALL = ("Microsoft YaHei UI", 11)
+FONT_MONO = ("Cascadia Mono", 12)
 REPORT_PATH = Path("reports/v4_mode3_latest.json")
 
 
 class V4App:
     def __init__(self, root):
         self.root = root
-        root.title("地平线6 V4 视觉制导模式三")
+        root.title("地平线6 · 自动助手")
         root.configure(bg=COLORS["bg"])
         root.resizable(True, True)
-        root.minsize(520, 560)
+        root.minsize(1040, 780)
+        root.geometry("1180x840")
         root.rowconfigure(0, weight=1)
         root.columnconfigure(0, weight=1)
         root.protocol("WM_DELETE_WINDOW", self.on_close)
@@ -98,15 +99,27 @@ class V4App:
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
         self.status_var = tk.StringVar(value="正在加载识别模型...")
 
-        shell = tk.Frame(root, bg=COLORS["bg"], padx=14, pady=12)
+        shell = tk.Frame(root, bg=COLORS["bg"], padx=18, pady=16)
         shell.grid(row=0, column=0, sticky="nsew")
         shell.columnconfigure(0, weight=1)
-        shell.rowconfigure(3, weight=1)  # 运行日志这一行随窗口拉伸放大
+        shell.rowconfigure(1, weight=1)   # the content row grows with the window
 
-        self._build_header(shell)
-        self._build_options(shell)
-        self._build_actions(shell)
-        self._build_log(shell)
+        self._build_header(shell)         # row 0, full width
+
+        # Landscape two-column body: controls on the LEFT, the log/report on the RIGHT.
+        content = tk.Frame(shell, bg=COLORS["bg"])
+        content.grid(row=1, column=0, sticky="nsew", pady=(4, 0))
+        content.columnconfigure(0, weight=0, minsize=620)   # left controls (fixed-ish)
+        content.columnconfigure(1, weight=1, minsize=420)   # right log grows
+        content.rowconfigure(0, weight=1)
+
+        left = tk.Frame(content, bg=COLORS["bg"])
+        left.grid(row=0, column=0, sticky="nsew", padx=(0, 14))
+        left.columnconfigure(0, weight=1)
+        self._build_options(left)         # left row 0
+        self._build_actions(left)         # left row 1
+
+        self._build_log(content)          # right column, full height
 
         self.root.after(200, self._refresh_driver)
         self.root.after(300, self._init_runner_async)
@@ -136,21 +149,23 @@ class V4App:
             pass
         style.configure(".", font=FONT, background=COLORS["surface"], foreground=COLORS["text"])
         # Secondary buttons (切回游戏 / 开始清理 / 开始抢车 / 开始买 ...)
-        style.configure("App.TButton", padding=(15, 11), background=COLORS["surface2"],
-                        foreground=COLORS["text"], borderwidth=0, focuscolor=COLORS["surface2"], font=FONT)
+        style.configure("App.TButton", padding=(20, 14), background=COLORS["surface2"],
+                        foreground=COLORS["text"], borderwidth=0, focuscolor=COLORS["surface2"],
+                        font=FONT, relief="flat")
         style.map("App.TButton",
-                  background=[("active", "#36423b"), ("disabled", "#252d29")],
+                  background=[("active", "#3a463f"), ("disabled", "#242c28")],
                   foreground=[("disabled", COLORS["muted"])])
         # Primary action (开始)
-        style.configure("Primary.TButton", padding=(18, 13), background=COLORS["accent"],
+        style.configure("Primary.TButton", padding=(22, 15), background=COLORS["accent"],
                         foreground="#ffffff", borderwidth=0, focuscolor=COLORS["accent"],
-                        font=(FONT[0], FONT[1], "bold"))
+                        font=(FONT[0], FONT[1], "bold"), relief="flat")
         style.map("Primary.TButton",
                   background=[("active", COLORS["accent_hi"]), ("disabled", "#2a3530")],
                   foreground=[("disabled", COLORS["muted"])])
         # Stop / halt buttons
-        style.configure("Stop.TButton", padding=(15, 11), background=COLORS["danger"],
-                        foreground="#ffffff", borderwidth=0, focuscolor=COLORS["danger"], font=FONT)
+        style.configure("Stop.TButton", padding=(20, 14), background=COLORS["danger"],
+                        foreground="#ffffff", borderwidth=0, focuscolor=COLORS["danger"],
+                        font=FONT, relief="flat")
         style.map("Stop.TButton",
                   background=[("active", COLORS["danger_hi"]), ("disabled", "#39302f")],
                   foreground=[("disabled", COLORS["muted"])])
@@ -161,18 +176,24 @@ class V4App:
         style.map("App.TRadiobutton", background=[("active", COLORS["surface"])])
         # Dark input fields (both the App.TEntry rows and the bare ttk.Entry/Combobox)
         for ent in ("App.TEntry", "TEntry"):
-            style.configure(ent, padding=(8, 7), fieldbackground=COLORS["surface2"],
+            style.configure(ent, padding=(10, 9), fieldbackground=COLORS["surface2"],
                             foreground=COLORS["text"], bordercolor=COLORS["border"],
                             insertcolor=COLORS["text"], borderwidth=1, relief="flat")
         style.configure("TCombobox", fieldbackground=COLORS["surface2"], background=COLORS["surface2"],
                         foreground=COLORS["text"], bordercolor=COLORS["border"], arrowcolor=COLORS["text"],
-                        padding=(8, 6), borderwidth=1, relief="flat")
+                        padding=(10, 8), borderwidth=1, relief="flat")
         style.map("TCombobox",
                   fieldbackground=[("readonly", COLORS["surface2"])],
                   foreground=[("readonly", COLORS["text"])],
                   selectbackground=[("readonly", COLORS["surface2"])])
-        style.configure("Vertical.TScrollbar", background=COLORS["surface2"], troughcolor=COLORS["bg"],
-                        bordercolor=COLORS["bg"], arrowcolor=COLORS["muted"])
+        # Modern flat scrollbar: just a slim thumb, NO arrow buttons (clam draws boxy arrows).
+        style.layout("Modern.Vertical.TScrollbar", [
+            ("Vertical.Scrollbar.trough", {"sticky": "ns", "children": [
+                ("Vertical.Scrollbar.thumb", {"expand": "1", "sticky": "nswe"})]})])
+        style.configure("Modern.Vertical.TScrollbar", background=COLORS["surface2"],
+                        troughcolor=COLORS["log_bg"], bordercolor=COLORS["log_bg"],
+                        borderwidth=0, relief="flat", width=10, arrowsize=0)
+        style.map("Modern.Vertical.TScrollbar", background=[("active", COLORS["border"])])
 
     def _card(self, parent, title):
         outer = tk.Frame(parent, bg=COLORS["surface"], padx=18, pady=15,
@@ -204,9 +225,9 @@ class V4App:
         tk.Label(guide, textvariable=self.driver_status, bg=COLORS["bg_deep"], fg=COLORS["muted"],
                  font=FONT_SMALL, anchor="w").grid(row=1, column=0, sticky="w", pady=(3, 0))
 
-    def _build_options(self, shell):
-        card = self._card(shell, "运行选项")
-        card.grid(row=1, column=0, sticky="we", pady=(0, 8))
+    def _build_options(self, left):
+        card = self._card(left, "运行选项")
+        card.grid(row=0, column=0, sticky="new", pady=(0, 14))
         body = card.body
         body.columnconfigure(1, weight=1)
         self._field(body, 0, "跑图时间(分钟)", self.farm_minutes, "每轮刷图;0=一直跑")
@@ -230,9 +251,9 @@ class V4App:
         tk.Label(rowf, text=unit, bg=COLORS["surface"], fg=COLORS["muted"], font=FONT_SMALL,
                  anchor="w").pack(side="left", padx=(14, 0))
 
-    def _build_actions(self, shell):
-        card = self._card(shell, "控制")
-        card.grid(row=2, column=0, sticky="we", pady=(0, 8))
+    def _build_actions(self, left):
+        card = self._card(left, "控制")
+        card.grid(row=1, column=0, sticky="new")
         body = card.body
         for c in range(4):
             body.columnconfigure(c, weight=1, uniform="act")
@@ -294,22 +315,21 @@ class V4App:
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
                  font=FONT_SMALL, anchor="w").grid(row=5, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
-    def _build_log(self, shell):
-        card = self._card(shell, "运行日志")
-        card.grid(row=3, column=0, sticky="nsew")
+    def _build_log(self, content):
+        card = self._card(content, "运行日志")
+        card.grid(row=0, column=1, sticky="nsew")   # right column, full height
         card.body.rowconfigure(0, weight=1)
-        self.log = scrolledtext.ScrolledText(card.body, width=74, height=12, state="disabled",
-                                             font=FONT_MONO, bg=COLORS["log_bg"], fg=COLORS["log_text"],
-                                             relief="flat", bd=0, padx=10, pady=8,
-                                             insertbackground=COLORS["log_text"],
-                                             selectbackground=COLORS["surface2"], selectforeground=COLORS["text"])
+        card.body.columnconfigure(0, weight=1)
+        self.log = tk.Text(card.body, width=44, height=10, state="disabled",
+                           font=FONT_MONO, bg=COLORS["log_bg"], fg=COLORS["log_text"],
+                           relief="flat", bd=0, padx=14, pady=12, wrap="word",
+                           insertbackground=COLORS["log_text"], spacing1=1, spacing3=3,
+                           selectbackground=COLORS["surface2"], selectforeground=COLORS["text"])
         self.log.grid(row=0, column=0, sticky="nsew")
-        try:   # dark-style the built-in scrollbar to match
-            self.log.vbar.config(background=COLORS["surface2"], troughcolor=COLORS["log_bg"],
-                                 activebackground=COLORS["border"], borderwidth=0,
-                                 highlightthickness=0, width=12)
-        except Exception:
-            pass
+        sb = ttk.Scrollbar(card.body, orient="vertical", command=self.log.yview,
+                           style="Modern.Vertical.TScrollbar")
+        sb.grid(row=0, column=1, sticky="ns", padx=(4, 0))
+        self.log.config(yscrollcommand=sb.set)
 
     # -- runner wiring ------------------------------------------------------
     def _log(self, msg: str):
