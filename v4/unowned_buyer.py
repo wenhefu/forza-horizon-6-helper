@@ -153,6 +153,7 @@ class UnownedBuyer:
             f"买未拥有{'[空跑]' if self.dry_run else ''}启动：{limit} / "
             f"{self.max_minutes:.0f} 分钟。请先停在『车展』车辆网格页。"
         )
+        stuck = 0
         while not self._stopped():
             if self.max_cars is not None and self.bought >= self.max_cars:
                 return "max_cars"
@@ -164,8 +165,35 @@ class UnownedBuyer:
                 return "no_more_cars"
             if outcome == "dry_seen" and self.dry_run:
                 return "dry_done"
+            # Stall guard: the loop "waits" (recovered) on any screen it doesn't recognize -- a
+            # popup, a notification, or the showroom failing to reload. Don't freeze silently:
+            # log WHICH screen, try B to dismiss a stray popup, then stop cleanly if still stuck.
+            if outcome == "recovered":
+                stuck += 1
+                if stuck == 12:
+                    scr = self._safe_screen()
+                    self.on_log(f"买未拥有：在画面『{scr}』停住了,按 B 试着退出弹窗/提示…")
+                    try:
+                        self.io.press("b")
+                    except Exception:
+                        pass
+                elif stuck >= 30:
+                    scr = self._safe_screen()
+                    self.on_log(
+                        f"买未拥有：长时间无进展(停在『{scr}』),已停止。"
+                        "请把 logs/gui.log 发我,我据此处理这个画面。"
+                    )
+                    return "stuck"
+            else:
+                stuck = 0
             self.sleeper(0.12 + random.uniform(0.0, 0.08))
         return "stopped"
+
+    def _safe_screen(self) -> str:
+        try:
+            return self.io.screen()
+        except Exception:
+            return "?"
 
 
 class UnownedBuyIO:

@@ -7,6 +7,7 @@ input via ViGEmBus.
 """
 from __future__ import annotations
 
+import logging
 import os
 import queue
 import threading
@@ -60,6 +61,7 @@ class V4App:
 
         self._configure_styles()
         self.log_q: queue.Queue = queue.Queue()
+        self._flog = self._setup_file_log()   # persist every GUI log line to logs/gui.log
         self.runner = None
         self.runner_ready = False
 
@@ -332,8 +334,29 @@ class V4App:
         self.log.config(yscrollcommand=sb.set)
 
     # -- runner wiring ------------------------------------------------------
+    def _setup_file_log(self):
+        """Persist every GUI log line to logs/gui.log so runs (auction / un-owned / etc.) are
+        diagnosable after the fact -- the on-screen panel is cleared each launch."""
+        try:
+            os.makedirs("logs", exist_ok=True)
+            lg = logging.getLogger("forza6gui")
+            lg.setLevel(logging.INFO)
+            if not lg.handlers:
+                h = logging.FileHandler(os.path.join("logs", "gui.log"), encoding="utf-8")
+                h.setFormatter(logging.Formatter("%(asctime)s %(message)s", "%Y-%m-%d %H:%M:%S"))
+                lg.addHandler(h)
+            lg.info("==== GUI session start ====")
+            return lg
+        except Exception:
+            return None
+
     def _log(self, msg: str):
         self.log_q.put(str(msg))
+        if self._flog is not None:
+            try:
+                self._flog.info(str(msg))
+            except Exception:
+                pass
 
     def _init_runner_async(self):
         def worker():
