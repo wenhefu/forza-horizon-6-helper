@@ -65,6 +65,7 @@ class UnownedBuyer:
         sleeper=time.sleep,
         stop_event=None,
         auto_focus: bool = True,
+        recover_after_seconds: float = 120.0,
     ):
         self.io = io
         self.dry_run = dry_run
@@ -75,6 +76,7 @@ class UnownedBuyer:
         self.sleeper = sleeper
         self._stop = stop_event
         self.auto_focus = auto_focus
+        self._recover_after = float(recover_after_seconds)   # no buy this long -> re-orient to grid
         self.bought = 0
         self.started_at = None
         self._filter_applied = False    # re-applied on every fresh grid (it resets on re-entry)
@@ -154,6 +156,9 @@ class UnownedBuyer:
             f"{self.max_minutes:.0f} 分钟。请先停在『车展』车辆网格页。"
         )
         stuck = 0
+        last_bought = 0
+        last_progress = self.clock()
+        recover_tries = 0
         while not self._stopped():
             if self.max_cars is not None and self.bought >= self.max_cars:
                 return "max_cars"
@@ -165,38 +170,53 @@ class UnownedBuyer:
                 return "no_more_cars"
             if outcome == "dry_seen" and self.dry_run:
                 return "dry_done"
-            # Stall guard: the loop "waits" (recovered) on any screen it doesn't recognize -- a
-            # popup, a notification, or the showroom failing to reload. Don't freeze silently:
-            # log WHICH screen, try B to dismiss a stray popup, then stop cleanly if still stuck.
-            if outcome == "recovered":
+
+            if self.bought > last_bought:        # a real purchase = real progress
+                last_bought = self.bought
+                last_progress = self.clock()
+                recover_tries = 0
+                stuck = 0
+            elif outcome == "recovered":
+                # Fast popup dismissal: A clears the common stuck-causes even when OCR can't read
+                # them (控制器未连接 / 季节更替 / 各种"确定"弹窗); B backs out a stray sub-screen.
                 stuck += 1
-                # Try the dismiss button A first -- it clears the most common stuck-causes even
-                # when OCR can't read them: 控制器未连接 / 季节更替 / 各种"确定"提示弹窗.
                 if stuck == 5:
-                    scr = self._safe_screen()
-                    self.on_log(f"买未拥有：在『{scr}』停住,按 A 试着确定/重连(控制器未连接等弹窗)…")
-                    try:
-                        self.io.press("a")
-                    except Exception:
-                        pass
-                elif stuck == 15:
-                    scr = self._safe_screen()
-                    self.on_log(f"买未拥有：仍卡在『{scr}』,按 B 试着退出…")
-                    try:
-                        self.io.press("b")
-                    except Exception:
-                        pass
-                elif stuck >= 30:
-                    scr = self._safe_screen()
+                    self.on_log(f"买未拥有：在『{self._safe_screen()}』停住,按 A 试着确定/重连…")
+                    self._safe_press("a")
+                elif stuck == 14:
+                    self.on_log(f"买未拥有：仍卡在『{self._safe_screen()}』,按 B 试着退出…")
+                    self._safe_press("b")
+            else:
+                stuck = 0                         # "step" = some progress (filter/nav)
+
+            # Robust watchdog: re-orient all the way back to the 车展 grid via the validated
+            # pause-menu path instead of spinning on a drifted/mislabeled screen. Triggers on a
+            # long run of no-progress frames OR (survives screen oscillation that keeps resetting
+            # `stuck`) on no car bought for a long wall-clock time.
+            if stuck >= 25 or self.clock() - last_progress > self._recover_after:
+                recover_tries += 1
+                if recover_tries > 2:
                     self.on_log(
-                        f"买未拥有：长时间无进展(停在『{scr}』),已停止。"
-                        "请把 logs/gui.log 发我,我据此处理这个画面。"
+                        f"买未拥有：多次回到车展仍买不到车(停在『{self._safe_screen()}』),已停止。"
+                        "请把 logs/gui.log 发我。"
                     )
                     return "stuck"
-            else:
+                self.on_log("买未拥有：长时间没买到车,正退回重新导航到『车展』网格页…")
+                try:
+                    self.io.navigate_to_grid()
+                except Exception as exc:
+                    self.on_log(f"买未拥有：重新导航出错 {exc}")
+                self._filter_applied = False
+                last_progress = self.clock()
                 stuck = 0
             self.sleeper(0.12 + random.uniform(0.0, 0.08))
         return "stopped"
+
+    def _safe_press(self, btn: str) -> None:
+        try:
+            self.io.press(btn)
+        except Exception:
+            pass
 
     def _safe_screen(self) -> str:
         try:
@@ -216,6 +236,7 @@ class UnownedBuyIO:
     _BTN = {
         "enter": "a", "a": "a", "esc": "b", "b": "b", "y": "y",
         "down": "dpad_down", "up": "dpad_up", "left": "dpad_left", "right": "dpad_right",
+        "start": "start", "menu": "start",
     }
 
     def __init__(
@@ -392,3 +413,64 @@ class UnownedBuyIO:
                 self.press("up")                          # wake the menu, re-focus 车展
             # else (still MENU) -> loop retries A
         return self._look() == GRID
+
+    def _wait_prefix(self, prefix: str, timeout: float) -> bool:
+        end = time.monotonic() + timeout
+        while time.monotonic() < end:
+            if self._stopped():
+                return False
+            if str(self._look()).startswith(prefix):
+                return True
+            self._sleep(0.2)
+        return False
+
+    def navigate_to_grid(self) -> bool:
+        """Re-orient to the 车展 vehicle grid from ANY drifted/mislabeled state, via the VALIDATED
+        path: back out to free roam -> Menu -> 车辆 tab -> 购买车与二手车 -> 移动至嘉年华 -> 车展 -> grid.
+        Used as the stall recovery so the buy loop self-heals from autoshow drift.
+
+        Every step here was confirmed live (the autoshow's post-buy car views mislabel a lot, but
+        free roam / pause / autoshow_buy_sell / vehicle_buy_grid classify reliably -- so we anchor
+        on those)."""
+        self.on_log("买未拥有：正退回自由漫游,再重新导航到车展…")
+        # 1) Back out to a reliable anchor.
+        for _ in range(12):
+            if self._stopped():
+                return False
+            s = self._look()
+            if s == GRID:
+                return True
+            if s == MENU:
+                return self.enter_showroom()
+            if s == DISCONNECT or self.controller_disconnected():
+                self.press("a")
+                continue
+            if s == "free_roam_hud" or str(s).startswith("pause"):
+                break
+            self.press("b")
+            self._sleep(0.3)
+        # 2) Ensure the pause menu (from free roam press Menu; from a pause_* we're already there).
+        if self._look() == "free_roam_hud":
+            self.press("start")
+            self._wait_prefix("pause", 4.0)
+        s = self._look()
+        if s == GRID:
+            return True
+        if s == MENU:
+            return self.enter_showroom()
+        # 3) pause -> 车辆 tab (normalize: leftmost LB then RB) -> 购买车与二手车.
+        for _ in range(6):
+            self.press("lb")
+        self.press("rb")                 # -> 车辆 tab (更换车辆 focused)
+        self._sleep(0.3)
+        self.press("down")               # 更换车辆 -> 车辆熟练度
+        self.press("left")               # -> 购买新车 (购买车与二手车)
+        self.press("a")                  # enter
+        # 4) 移动至嘉年华 modal -> autoshow menu -> 车展 -> grid.
+        s = self._wait_screen({TRAVEL_MODAL, MENU, GRID}, 6.0)
+        if s == TRAVEL_MODAL:
+            self.press("a")              # 嗯 -> fast travel
+            self._wait_screen({MENU, GRID}, 12.0)
+        if self._look() == GRID:
+            return True
+        return self.enter_showroom()

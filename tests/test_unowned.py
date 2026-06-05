@@ -14,19 +14,29 @@ from v4.unowned_buyer import DISCONNECT, GRID, MENU, UnownedBuyer
 
 
 class FakeIO:
-    def __init__(self, *, focused=True, unowned=3, start=GRID, b_clears=False, disc_text=False):
+    def __init__(self, *, focused=True, unowned=3, start=GRID, b_clears=False, disc_text=False,
+                 nav_recovers=False):
         self._state = start
         self._filtered = False
         self._focused = focused
         self.unowned = unowned          # un-owned cars still left to buy
         self.b_clears = b_clears        # if True, pressing B on an unhandled screen -> back to grid
         self._disc_text = disc_text     # controller-disconnect modal detectable only by OCR text
+        self.nav_recovers = nav_recovers  # does navigate_to_grid() succeed (reach the grid)?
         self.presses = []
         self.calls = []
         self.activate_calls = 0
 
     def controller_disconnected(self):
         return self._disc_text
+
+    def navigate_to_grid(self):
+        self.calls.append("navigate_to_grid")
+        if self.nav_recovers:
+            self._state = GRID
+            self._filtered = False
+            return True
+        return False
 
     def focused(self):
         return self._focused
@@ -169,12 +179,12 @@ def test_stall_guard_presses_A_then_B_when_stuck():
 
 
 def test_stall_guard_stops_cleanly_when_stuck_on_unhandled_screen():
-    # An unrecognized screen (e.g. a popup) used to make the loop wait forever; now it stops
-    # cleanly with "stuck" instead of silently freezing.
-    io = FakeIO(unowned=1, start="some_popup", b_clears=False)
+    # An unrecognized screen (e.g. a popup) used to make the loop wait forever; now it tries to
+    # re-orient to the grid and, if that keeps failing, stops cleanly with "stuck".
+    io = FakeIO(unowned=1, start="some_popup", b_clears=False, nav_recovers=False)
     b = _buyer(io, dry_run=False, max_cars=5)
     assert b.run() == "stuck"
-    assert "b" in io.presses                   # tried to dismiss it before giving up
+    assert "navigate_to_grid" in io.calls       # attempted the re-orient recovery
 
 
 def test_stall_guard_recovers_if_B_dismisses_the_popup():
@@ -182,4 +192,14 @@ def test_stall_guard_recovers_if_B_dismisses_the_popup():
     io = FakeIO(unowned=1, start="some_popup", b_clears=True)
     b = _buyer(io, dry_run=False, max_cars=5)
     assert b.run() == "no_more_cars"
+    assert b.bought == 1
+
+
+def test_stall_guard_re_orients_to_grid_and_resumes():
+    # The real-world fix: when stuck (drift / mislabeled screen), navigate_to_grid() takes it
+    # back to the 车展 grid and buying resumes.
+    io = FakeIO(unowned=1, start="some_popup", b_clears=False, nav_recovers=True)
+    b = _buyer(io, dry_run=False, max_cars=5)
+    assert b.run() == "no_more_cars"
+    assert "navigate_to_grid" in io.calls
     assert b.bought == 1
