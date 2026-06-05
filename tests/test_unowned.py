@@ -1,25 +1,16 @@
-"""Tests for the buy-all-unowned loop (UnownedBuyer) with a fake IO that scripts the live-mapped
-flow: grid --apply filter--> grid --buy--> design --Y--> color --A--> preview --A--> confirm
---A--> showcase --B--> carview --B--> menu --enter--> grid (filter reset) -> repeat.
+"""Tests for the buy-all-unowned loop (UnownedBuyer) with a fake IO.
 
-Safety invariants under test: never buys on an UNFILTERED grid (filter is applied first every
-cycle); dry-run CANCELS at the confirm dialog (never spends); the loop terminates (max_cars /
-empty grid) instead of looping forever.
+The fragile, slow buy sub-flow now lives in UnownedBuyIO.buy_focused_car (phase-aware, tolerant
+of the slow 推荐设计 load); the loop just orchestrates filter -> buy -> re-enter -> re-filter.
+
+Invariants under test: never buys on an UNFILTERED grid (filter applied first every cycle); the
+filter is re-applied every cycle (it resets on re-entry); dry-run never reports a purchase; the
+loop terminates (max_cars / empty grid / stop) instead of looping forever; unlimited (max=None)
+buys until the grid is empty.
 """
 import threading
 
-from v4.unowned_buyer import (
-    CARVIEW,
-    COLOR,
-    CONFIRM,
-    DESIGN,
-    DISCONNECT,
-    GRID,
-    MENU,
-    PREVIEW,
-    SHOWCASE,
-    UnownedBuyer,
-)
+from v4.unowned_buyer import DISCONNECT, GRID, MENU, UnownedBuyer
 
 
 class FakeIO:
@@ -42,27 +33,10 @@ class FakeIO:
     def screen(self):
         return self._state
 
-    def read_price(self):
-        return "850,000"
-
     def press(self, b):
         self.presses.append(b)
-        st = self._state
-        if st == DESIGN and b == "y":
-            self._state = COLOR
-        elif st == COLOR and b == "a":
-            self._state = PREVIEW
-        elif st == PREVIEW and b == "a":
-            self._state = CONFIRM
-        elif st == CONFIRM and b == "b":       # dry-run cancel
-            self._state = GRID
-            self._filtered = False
-        elif st == SHOWCASE and b == "b":
-            self._state = CARVIEW
-        elif st == CARVIEW and b == "b":
-            self._state = MENU
-        elif st == DISCONNECT and b == "a":
-            self._state = GRID
+        if self._state == DISCONNECT and b == "a":
+            self._state = GRID          # controller reconnected
 
     def apply_unowned_filter(self):
         self.calls.append("apply_filter")
@@ -71,22 +45,24 @@ class FakeIO:
             return True
         return False
 
-    def open_buy(self):
-        self.calls.append("open_buy")
-        if self._state == GRID and self._filtered and self.unowned > 0:
-            self._state = DESIGN
-            return True
-        return False
-
-    def confirm_buy(self):
-        self.calls.append("confirm_buy")
-        self._state = SHOWCASE
+    def buy_focused_car(self, dry_run):
+        self.calls.append(("buy", "dry" if dry_run else "real"))
+        if not (self._state == GRID and self._filtered):
+            return "no_car"
+        if self.unowned <= 0:
+            return "no_car"             # filtered grid empty -> done
+        if dry_run:
+            return "dry_seen"           # walked to confirm + cancelled; nothing bought
         self.unowned -= 1
+        self._state = MENU              # a real buy ends back at the 购买与出售 menu
+        self._filtered = False
+        return "bought"
 
     def enter_showroom(self):
         self.calls.append("enter_showroom")
         self._state = GRID
-        self._filtered = False
+        self._filtered = False          # the filter RESETS on re-entry
+        return True
 
 
 def _buyer(io, **kw):
@@ -101,9 +77,8 @@ def test_dry_run_walks_to_confirm_then_cancels_without_buying():
     assert b.run() == "dry_done"
     assert b.bought == 0
     assert "apply_filter" in io.calls          # filtered first
-    assert "open_buy" in io.calls              # walked into the buy flow
-    assert "confirm_buy" not in io.calls       # but NEVER actually bought
-    assert "b" in io.presses                   # cancelled at the confirm dialog
+    assert ("buy", "dry") in io.calls          # walked into the (cancelled) buy
+    assert ("buy", "real") not in io.calls     # never a real purchase
 
 
 def test_buys_all_unowned_then_stops_when_grid_empty():
@@ -111,7 +86,6 @@ def test_buys_all_unowned_then_stops_when_grid_empty():
     b = _buyer(io, dry_run=False, max_cars=10)
     assert b.run() == "no_more_cars"
     assert b.bought == 2
-    assert io.calls.count("confirm_buy") == 2
 
 
 def test_stops_at_max_cars():
@@ -122,7 +96,6 @@ def test_stops_at_max_cars():
 
 
 def test_unlimited_max_cars_buys_until_grid_empty():
-    # max_cars=None (the GUI default now) = no cap: buy every un-owned car, then stop on empty.
     io = FakeIO(unowned=4)
     b = _buyer(io, dry_run=False, max_cars=None)
     assert b.run() == "no_more_cars"
@@ -131,16 +104,12 @@ def test_unlimited_max_cars_buys_until_grid_empty():
 
 def test_filter_is_reapplied_every_cycle_before_buying():
     # The 未拥有 filter resets on grid re-entry, so it must be applied once per buy cycle and
-    # ALWAYS before the buy (never buy an unfiltered grid).
+    # ALWAYS immediately before the buy (never buy an unfiltered grid).
     io = FakeIO(unowned=2)
-    b = _buyer(io, dry_run=False, max_cars=10)
-    b.run()
-    # one apply per buy + one final (empty) check; never an open_buy without a preceding filter
-    assert io.calls.count("apply_filter") == io.calls.count("open_buy")
-    # every open_buy is immediately preceded by an apply_filter
-    for i, c in enumerate(io.calls):
-        if c == "open_buy":
-            assert io.calls[i - 1] == "apply_filter"
+    _buyer(io, dry_run=False, max_cars=10).run()
+    buys = [i for i, c in enumerate(io.calls) if c == ("buy", "real") or c == ("buy", "dry")]
+    for i in buys:
+        assert io.calls[i - 1] == "apply_filter"   # every buy is preceded by a filter-apply
 
 
 def test_empty_filtered_grid_terminates_immediately():
