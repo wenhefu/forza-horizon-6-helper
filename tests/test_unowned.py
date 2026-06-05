@@ -14,15 +14,19 @@ from v4.unowned_buyer import DISCONNECT, GRID, MENU, UnownedBuyer
 
 
 class FakeIO:
-    def __init__(self, *, focused=True, unowned=3, start=GRID, b_clears=False):
+    def __init__(self, *, focused=True, unowned=3, start=GRID, b_clears=False, disc_text=False):
         self._state = start
         self._filtered = False
         self._focused = focused
         self.unowned = unowned          # un-owned cars still left to buy
         self.b_clears = b_clears        # if True, pressing B on an unhandled screen -> back to grid
+        self._disc_text = disc_text     # controller-disconnect modal detectable only by OCR text
         self.presses = []
         self.calls = []
         self.activate_calls = 0
+
+    def controller_disconnected(self):
+        return self._disc_text
 
     def focused(self):
         return self._focused
@@ -36,8 +40,9 @@ class FakeIO:
 
     def press(self, b):
         self.presses.append(b)
-        if self._state == DISCONNECT and b == "a":
-            self._state = GRID          # controller reconnected
+        if b == "a" and (self._state == DISCONNECT or self._disc_text):
+            self._state = GRID          # A dismissed the disconnect modal -> reconnected
+            self._disc_text = False
         elif b == "b" and self.b_clears and self._state not in (GRID, MENU, DISCONNECT):
             self._state = GRID          # B dismissed the stray popup -> back to the grid
 
@@ -143,6 +148,24 @@ def test_auto_focus_brings_game_forward():
     b = _buyer(io, dry_run=True, auto_focus=True)
     b.run()
     assert io.activate_calls >= 1
+
+
+def test_text_detected_controller_disconnect_is_dismissed_with_A():
+    # The user's bug: the 控制器未连接 modal was mislabeled (unknown), so the loop didn't press A.
+    # Now it's detected by OCR text and dismissed with A, then buying resumes.
+    io = FakeIO(unowned=1, start="unknown", disc_text=True)
+    b = _buyer(io, dry_run=False, max_cars=5)
+    assert b.run() == "no_more_cars"
+    assert "a" in io.presses                   # pressed A (确定) to reconnect
+    assert b.bought == 1                        # recovered and bought the car
+
+
+def test_stall_guard_presses_A_then_B_when_stuck():
+    # When stuck on an unhandled screen, the guard tries A (dismiss/确定) before B.
+    io = FakeIO(unowned=1, start="some_popup", b_clears=False)
+    b = _buyer(io, dry_run=False, max_cars=5)
+    b.run()
+    assert "a" in io.presses and "b" in io.presses
 
 
 def test_stall_guard_stops_cleanly_when_stuck_on_unhandled_screen():

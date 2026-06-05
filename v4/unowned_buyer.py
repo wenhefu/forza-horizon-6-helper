@@ -101,8 +101,8 @@ class UnownedBuyer:
             return "recovered"
         s = self.io.screen()
 
-        if s == DISCONNECT:
-            self.io.press("a")
+        if s == DISCONNECT or self.io.controller_disconnected():
+            self.io.press("a")     # A=确定 -> dismiss the modal + reconnect the controller
             return "recovered"
 
         if s == GRID:
@@ -170,9 +170,18 @@ class UnownedBuyer:
             # log WHICH screen, try B to dismiss a stray popup, then stop cleanly if still stuck.
             if outcome == "recovered":
                 stuck += 1
-                if stuck == 12:
+                # Try the dismiss button A first -- it clears the most common stuck-causes even
+                # when OCR can't read them: 控制器未连接 / 季节更替 / 各种"确定"提示弹窗.
+                if stuck == 5:
                     scr = self._safe_screen()
-                    self.on_log(f"买未拥有：在画面『{scr}』停住了,按 B 试着退出弹窗/提示…")
+                    self.on_log(f"买未拥有：在『{scr}』停住,按 A 试着确定/重连(控制器未连接等弹窗)…")
+                    try:
+                        self.io.press("a")
+                    except Exception:
+                        pass
+                elif stuck == 15:
+                    scr = self._safe_screen()
+                    self.on_log(f"买未拥有：仍卡在『{scr}』,按 B 试着退出…")
                     try:
                         self.io.press("b")
                     except Exception:
@@ -263,6 +272,13 @@ class UnownedBuyIO:
         tag = self._look()
         self._dbg(f"  [看] screen={tag}  OCR: {self._last_text[:120]}")
         return tag
+
+    def controller_disconnected(self) -> bool:
+        """The 控制器未连接 / 请重新连接控制器 modal -- detected from the last OCR text, because the
+        screen classifier sometimes labels this lime banner (over the autoshow) as
+        unknown/loading_transition. A single A (确定) dismisses it and reconnects."""
+        t = self._last_text or ""
+        return ("控制器未连接" in t) or ("重新连接控制器" in t) or ("控制器" in t and "重新连接" in t)
 
     def press(self, name: str) -> None:
         from gamepad import BUTTON_NAMES
