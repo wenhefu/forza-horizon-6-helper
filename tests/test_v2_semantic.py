@@ -427,6 +427,35 @@ def test_upgrade_submenu_is_not_pause_story():
     assert understanding.active_tab == "车辆"
 
 
+def test_upgrade_submenu_and_mastery_recognized_after_车辆专精_rename():
+    # FH6 简中更新把"车辆熟练度"改名为"车辆专精"; both the upgrade submenu and the mastery tree
+    # must still classify so the buy-car加点 flow doesn't stall on "未看到车辆熟练度".
+    analyzer = ForzaSemanticAnalyzer()
+    upgrade = analyzer.analyze(
+        None,
+        [
+            item("升级", 0.13, 0.17),
+            item("自定义升级", 0.14, 0.53),
+            item("自动升级", 0.14, 0.58),
+            item("升级预设", 0.14, 0.63),
+            item("自定义调校", 0.14, 0.68),
+            item("车辆专精", 0.14, 0.89),
+        ],
+    )
+    assert upgrade.screen == "upgrade_menu"
+
+    mastery = analyzer.analyze(
+        None,
+        [
+            item("车辆专精", 0.3, 0.1),
+            item("可用点数", 0.3, 0.2),
+            item("花费", 0.3, 0.3),
+            item("抽奖精灵", 0.3, 0.4),
+        ],
+    )
+    assert mastery.screen == "vehicle_mastery"
+
+
 def test_eventlab_pre_race_competition_menu_is_race_menu():
     analyzer = ForzaSemanticAnalyzer()
     understanding = analyzer.analyze(

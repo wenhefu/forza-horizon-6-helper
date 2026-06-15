@@ -128,7 +128,7 @@ UI_NODES: dict[str, UINode] = {
         parent="pause_root",
         tab_scope="暂停菜单顶部分页",
         tabs=PAUSE_TABS,
-        options=("购买新车与二手车", "更换车辆", "车辆熟练度", "升级和改装车", "调校车辆", "秘藏座驾", "车房宝物", "礼物掉落箱", "汽车喇叭"),
+        options=("购买新车与二手车", "更换车辆", "车辆熟练度", "车辆专精", "升级和改装车", "调校车辆", "秘藏座驾", "车房宝物", "礼物掉落箱", "汽车喇叭"),
         children=(
             ChildRoute("购买新车与二手车", "autoshow_buy_sell", "A", "出现购买与出售标题和车展/拍卖场菜单"),
             ChildRoute("更换车辆", "garage_my_cars", "A", "出现我的车辆/车辆列表"),
@@ -238,7 +238,7 @@ UI_NODES: dict[str, UINode] = {
         "升级和调校子菜单",
         "upgrade_menu",
         parent="pause_vehicle_entry",
-        options=("自定义升级", "自动升级", "升级预设", "自定义调校", "我的调校设置", "寻找调校设置", "车辆熟练度"),
+        options=("自定义升级", "自动升级", "升级预设", "自定义调校", "我的调校设置", "寻找调校设置", "车辆熟练度", "车辆专精"),
         children=(ChildRoute("返回车辆分页", "pause_vehicle_entry", "B/Esc", "回到暂停菜单 / 车辆"),),
     ),
     "pause_my_horizon": UINode(

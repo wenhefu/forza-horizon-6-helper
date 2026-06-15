@@ -513,6 +513,7 @@ class ForzaSemanticAnalyzer:
             "寻找调校设置",
             "已关注的玩家",
             "车辆熟练度",
+            "车辆专精",
             "恢复默认升级",
         )
         if has_any(upper_text, ["升级"]) and sum(
@@ -520,7 +521,7 @@ class ForzaSemanticAnalyzer:
         ) >= 3:
             return "upgrade_menu", 0.92, ["OCR saw upgrade/tuning submenu"]
         mastery_markers = ("可用点数", "花费", "解锁全部", "技术分", "XP")
-        if has_any(all_text, ["车辆熟练度"]) and sum(1 for marker in mastery_markers if marker in all_text) >= 2:
+        if has_any(all_text, ["车辆熟练度", "车辆专精"]) and sum(1 for marker in mastery_markers if marker in all_text) >= 2:
             return "vehicle_mastery", 0.94, ["OCR saw vehicle mastery skill tree"]
         if has_any(mid_text, ["购买新车", "二手车", "更换车辆"]):
             return "pause_vehicle_entry", 0.92, ["OCR saw vehicle-page purchase/change tiles"]

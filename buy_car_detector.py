@@ -521,7 +521,7 @@ class BuyCarScreenDetector:
         scores["ocr_eventlab_active_tab"] = float(eventlab_active_tab)
         scores["eventlab_active_tab_dark"] = eventlab_active_tab_dark
         scores["ocr_vehicle_upgrade_seen"] = 1.0 if has(mid_text, ["升级与调校"]) else 0.0
-        scores["ocr_upgrade_mastery_seen"] = 1.0 if has(mid_text, ["车辆熟练度"]) else 0.0
+        scores["ocr_upgrade_mastery_seen"] = 1.0 if has(mid_text, ["车辆熟练度", "车辆专精"]) else 0.0
         pause_cars_tile_seen = pause_purchase_seen or has(mid_text, ["更换车辆", "购买新车", "二手车"])
         vehicle_tab_seen = has(mid_text, ["我的车辆", "升级与调校"]) or (
             not pause_cars_tile_seen
@@ -692,10 +692,10 @@ class BuyCarScreenDetector:
         if not pause_cars_tile_seen and has(mid_text, ["升级与调校", "我的车辆", "设计与喷漆", "牌照", "汽车喇叭", "秘藏座驾"]):
             return updated(STATE_VEHICLE_TAB, 0.90)
 
-        if has(main_text, ["升级"]) and has(mid_text, ["车辆熟练度", "自动升级", "自定义升级"]):
+        if has(main_text, ["升级"]) and has(mid_text, ["车辆熟练度", "车辆专精", "自动升级", "自定义升级"]):
             return updated(STATE_UPGRADE_MENU, 0.90)
 
-        if has(main_text, ["车辆熟练度", "可用点数", "吸引眼球", "抽奖精灵"]):
+        if has(main_text, ["车辆熟练度", "车辆专精", "可用点数", "吸引眼球", "抽奖精灵"]):
             return updated(STATE_SKILL_MASTERY, 0.94)
 
         if detection.ocr_text:
