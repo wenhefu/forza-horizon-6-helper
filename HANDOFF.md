@@ -1,5 +1,34 @@
 # Handoff - Forza Horizon 6 Helper
 
+## Build & test (2026-06-16) — v1.1 (shipped to GitHub Release)
+
+Hardening of the 买未拥有 (buy-all-unowned) loop for long unattended runs, + a simplified-Chinese
+localization fix. All on top of the 2026-06-05 feature + the landscape dark UI.
+- **Controller-disconnect auto-recovery.** The virtual pad occasionally drops after a while and
+  FH shows 控制器未连接; that screen sometimes mis-classifies (unknown/loading_transition). The
+  un-owned loop now detects it (`UnownedBuyIO.controller_disconnected()`, OCR text) AND the stall
+  guard presses **A** first (dismiss/确定/reconnect) when stuck — so it reconnects and keeps going.
+- **Self-healing re-orient (`UnownedBuyIO.navigate_to_grid`).** When the loop drifts onto a
+  mislabeled post-buy car view (idle_showcase / eventlab_my_cars / photo_mode) and gets stuck, a
+  watchdog (no car bought for `recover_after_seconds`=120s, OR a long no-progress run) backs out
+  to free roam and **re-navigates the validated path** (Menu → 车辆 → 购买车与二手车 → 移动至嘉年华
+  → 车展 → grid), then resumes. Stops cleanly after 3 failed re-orients. VALIDATED LIVE zero-spend
+  (recovered from a fully-drifted state back to vehicle_buy_grid).
+- **GUI log persists to `logs/gui.log`** (`_setup_file_log`) — every panel line is saved, so
+  auction / un-owned / etc. runs are diagnosable after the fact (the on-screen panel clears each
+  launch). Dev tools used this session: `validate_unowned.py` / `validate_nav.py` (zero-spend live
+  validators), `capture_gui.py` (screenshot the GUI window), `make_release.ps1` + `release_notes.md`.
+- **简中本地化适配:「车辆熟练度」→「车辆专精」.** FH6's simplified-Chinese update renamed vehicle
+  mastery; the buy-car加点 detector keyed on the old literal and stalled ("未看到车辆熟练度"). Added
+  "车辆专精" as a synonym everywhere it's a detection token: `buy_car_detector.py` (ocr_upgrade_
+  mastery_seen + STATE_UPGRADE_MENU + STATE_SKILL_MASTERY), `v2/semantic.py`, `v3/ui_names.py`
+  (alias), `v3/ui_tree.py`. User-confirmed working in-game.
+- **Audit (this session, not yet acted on):** a workflow inventoried every Chinese UI detection
+  token; the rename-fragile SINGLE-token gates (e.g. decision.py 购买/二手车/创意中心/收藏==,
+  mode3_runner controller AND, buying_ui 选择操作, v2 semantic Tab names) are flagged for future
+  backup-synonym hardening. Note: a localization rename makes a flow STOP (fail-safe), not
+  spend/delete wrongly — the money/destructive gates are fail-closed.
+
 ## Build & test (2026-06-05)
 
 - **「买未拥有的车」row (autoshow 车展) — NEW.** `v4/unowned_buyer.py` (UnownedBuyer + UnownedBuyIO,
