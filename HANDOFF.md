@@ -55,16 +55,22 @@ Two user-requested features, both validated live by driving the game myself.
   - **"Missed cars" fix (user-reported: 漏了几个, 顺序有问题).** The first traversal was a per-row
     batch: one 5-cell read + `move_to_col` to each placeholder. If that single frame's OCR/placeholder
     detection missed a cell, the MIDDLE placeholder was silently skipped (caught cols 1 & 5, skipped
-    Giulia TZ2 at col 4); and `pin_to_top` pressed a FIXED 7 ups, never reaching the true top of a
-    ~114-row collection (top rows unscanned). **Rewrote `run()` as a cell-by-cell SNAKE walk**: the
-    cursor visits one concrete cell per step and classifies the FOCUSED cell in place (can't skip);
-    ends when no new car appears for `NO_PROGRESS_LIMIT` steps. **`pin_to_top` now reaches the TRUE
-    top** via fast up-taps until the visible placeholder PATTERN (deterministic color mask, not jittery
-    OCR) is stable. Regression tests: all-placeholder row + multi-placeholder rows caught completely;
-    partial last row handled. Live full-grid run: **112 un-owned (vs 84 before)** -- the snake catches
-    what the batch missed. Two more classifier gaps the bigger run surfaced, now fixed: a 2nd barn-find
-    文案 "听说这辆车被人遗弃在车房里…" (车房/遗弃 → 谷仓车) and a lone OCR-truncated "车" token → 车展.
-    Net: 112-car survey classifies with **0 未知**. 295 tests pass.
+    Giulia TZ2 at col 4); and `pin_to_top` pressed a FIXED 7 ups, never reaching the true top (top
+    rows unscanned). **Rewrote `run()` as a cell-by-cell SNAKE walk**: the cursor visits one concrete
+    cell per step and classifies the FOCUSED cell in place (can't skip); ends when no new car appears
+    for `NO_PROGRESS_LIMIT` steps. Regression tests: all-placeholder row + multi-placeholder rows
+    caught completely; partial last row handled.
+  - **No pin-to-top (user: 一开始就滑动页面了 → 遍历到有重复为止).** The grid WRAPS (down past the
+    bottom loops to the top -- verified live: returned to the start car after 122 down-presses, no
+    plateau). So `run()` does NOT scroll to the top first; it surveys from the current view and the
+    snake LAPS the wrapping grid, terminating once it keeps re-seeing catalogued cars. Removes the
+    janky initial scroll AND covers rows above the start (a fixed pin could miss them). `pin_to_top`
+    is kept on `UnownedSurveyIO` (used by `validate_survey.py`) but `run()` no longer calls it. Test:
+    start mid-grid, placeholders in every row, all caught via the wrap.
+  - Two classifier gaps the bigger runs surfaced, fixed: a 2nd barn-find 文案 "听说这辆车被人遗弃在
+    车房里…" (车房/遗弃 → 谷仓车) and a lone OCR-truncated "车" token → 车展.
+  - **Live full-grid run (final): `reason=done`, 114 un-owned (vs 84 originally), 0 未知** -- 车展 30 /
+    抽奖 10 / 季节赛事-嘉年华奖励 62 / 谷仓车 22 / 车辆专精树 5 / 收集簿各类别 11. 296 tests pass.
 
 ## Build & test (2026-06-16) — v1.1 (shipped to GitHub Release)
 
