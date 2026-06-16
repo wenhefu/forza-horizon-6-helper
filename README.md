@@ -96,5 +96,5 @@
 - 文档 `README_V2.md` / `README_VISION.md` / `README_V4.md`。
 
 ## 仓库 / 反馈
-- <https://github.com/wenhefu/forzaHorizonScript>
+- <https://github.com/wenhefu/forza-horizon-helper>
 - 界面右上角的「GitHub / 反馈」也会打开本仓库。
