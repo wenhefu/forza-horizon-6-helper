@@ -40,16 +40,44 @@ NAME_DY = 0.074          # name text sits this far below a card's center
 NAME_TOL_Y = 0.018
 NAME_TOL_X = 0.070
 
-OBTAIN_BUY = "buy"
-OBTAIN_REWARD = "reward"
+OBTAIN_BUY = "buy"        # 车展 available -> the popup offers 是否要从车展购买 (取消/确认)
+OBTAIN_INFO = "info"      # has obtain methods but NOT 车展 -> info + single 确定 (can't buy directly)
+OBTAIN_REWARD = "reward"  # reward-only: 季节赛事/嘉年华游戏列表
+OBTAIN_BARNFIND = "barnfind"
 OBTAIN_UNKNOWN = "unknown"
 
-# Canonical obtain-method labels (zh) the report groups by.
+# Canonical obtain-method labels (zh) the report groups by. Derived from a LIVE corpus of 139 cars'
+# 购买 popups (logs/购买文案语料.jsonl) -- the real text is far richer than the first two samples.
 METHOD_AUTOSHOW = "车展"
 METHOD_WHEELSPIN = "抽奖"
 METHOD_REWARD = "季节赛事/嘉年华奖励"
+METHOD_BARNFIND = "谷仓车(寻车任务)"
+METHOD_MASTERY = "车辆专精树"
+METHOD_STORE = "商店/DLC"
 
-_OBTAIN_RE = re.compile(r"可通过以下途径获得[:：]?\s*([^。\n]+?)(?:。|是否|$)")
+# Collection-book ("收集簿") reward categories seen in the corpus; matched as substrings so OCR noise
+# (smart quotes, a split 类/别) still resolves. Longer names first so e.g. 地平线传奇赛 wins over 地平线传奇.
+_COLLECTION_CATS = (
+    "地平线传奇赛", "地平线宣传活动", "地平线传奇", "奖励广告牌", "车辆收藏",
+    "危险标志", "测速区间", "一日游", "车库", "漂移区", "限速",
+)
+
+_OBTAIN_RE = re.compile(r"获得[:：]?\s*(.+?)(?:是否要|作为奖励|。|$)", re.S)
+
+# Phrases that only appear inside a 购买 popup (never on the bare grid) -- used to confirm a popup is
+# actually open before we press a dismiss button (so we never 选择 into a car that showed no popup).
+# Includes the standard modal BUTTON words (确定/确认/取消) so even a never-seen-before popup template
+# is still recognized as a modal and gets dismissed -- the bare grid prompt bar has none of these
+# (it shows 选择/返回/已排序/制造商/购买).
+POPUP_MARKERS = (
+    "可通过以下途径获得", "作为奖励出现", "是否要", "季节性赛事", "嘉年华游戏列表",
+    "购买这辆车", "确定", "确认", "取消",
+)
+
+
+def is_popup(text: str) -> bool:
+    t = text or ""
+    return any(m in t for m in POPUP_MARKERS)
 
 
 def cell_image_box(row: int, col: int):
@@ -148,33 +176,55 @@ def read_cell_name(ocr_items, row: int, col: int) -> str:
     return best
 
 
-def classify_obtain(text: str):
-    """Classify a 购买 popup's text -> (kind, [method labels]).
+def _method_label(tok: str) -> str:
+    """Map one raw obtain-method token to a canonical label (substring matching survives OCR noise)."""
+    if "车展" in tok:
+        return METHOD_AUTOSHOW
+    if "抽奖" in tok or "转盘" in tok:
+        return METHOD_WHEELSPIN
+    if "专精" in tok:
+        return METHOD_MASTERY
+    if "商店" in tok or "附加内容" in tok or "DLC" in tok or "dlc" in tok:
+        return METHOD_STORE
+    if "嘉年华" in tok or "季节" in tok:
+        return METHOD_REWARD
+    if "收集簿" in tok or "收集薄" in tok:
+        for cat in _COLLECTION_CATS:
+            if cat in tok:
+                return f"收集簿·{cat}"
+        return "收集簿奖励"
+    return tok.strip(" 、，,。\"'“”‘’「」")
 
-    kind in buy|reward|unknown. methods is the list of canonical zh labels the report groups by.
-    """
+
+def classify_obtain(text: str):
+    """Classify a 购买 popup's raw OCR text -> (kind, [canonical method labels]).
+
+    kind in buy|info|reward|barnfind|unknown. `methods` is the de-duplicated list of canonical labels
+    the report groups by. Built + validated against the live 139-car corpus."""
     t = text or ""
-    if ("作为奖励出现" in t) or ("季节" in t and "奖励" in t) or ("嘉年华游戏列表" in t):
-        return OBTAIN_REWARD, [METHOD_REWARD]
+    # Barn-find ("四处探索，寻找关于该废弃车辆下落的线索...")
+    if "废弃车辆" in t or ("线索" in t and "寻找" in t):
+        return OBTAIN_BARNFIND, [METHOD_BARNFIND]
+    methods: list[str] = []
     m = _OBTAIN_RE.search(t)
     if m:
-        raw = m.group(1)
-        methods = []
-        for tok in re.split(r"[,，、/]+", raw):
+        raw = m.group(1).replace("|", " ")              # OCR splits the list across | -- rejoin
+        for tok in re.split(r"[，,、/]+", raw):
             tok = tok.strip()
             if not tok:
                 continue
-            if "车展" in tok:
-                methods.append(METHOD_AUTOSHOW)
-            elif "抽奖" in tok or "转盘" in tok:
-                methods.append(METHOD_WHEELSPIN)
-            else:
-                methods.append(tok)
-        # de-dup preserving order
-        seen = set()
-        methods = [x for x in methods if not (x in seen or seen.add(x))]
-        return OBTAIN_BUY, methods or [METHOD_AUTOSHOW]
-    return OBTAIN_UNKNOWN, []
+            methods.append(_method_label(tok))
+    # The reward note can co-occur with a 抽奖 method (single-确定 popup) -- add it too.
+    if ("作为奖励出现" in t) or ("嘉年华游戏列表" in t) or ("季节赛事" in t) or ("季节性赛事" in t):
+        methods.append(METHOD_REWARD)
+    # de-dup, preserve order, drop empties
+    seen = set()
+    methods = [x for x in methods if x and not (x in seen or seen.add(x))]
+    if not methods:
+        return OBTAIN_UNKNOWN, []
+    kind = OBTAIN_BUY if METHOD_AUTOSHOW in methods else (
+        OBTAIN_REWARD if methods == [METHOD_REWARD] else OBTAIN_INFO)
+    return kind, methods
 
 
 @dataclass
@@ -215,10 +265,14 @@ class UnownedSurveyor:
         stop_event=None,
         auto_focus: bool = True,
         max_minutes: float = 45.0,    # safety upper bound; ends early on "done" at the grid bottom
+        collect_all: bool = False,    # data-collection: press 购买 on EVERY car (owned too) to log its raw 文案
+        on_corpus=None,               # callback(name, placeholder, text) for each car in collect_all mode
     ):
         self.io = io
         self.on_log = on_log or (lambda m: None)
         self.on_progress = on_progress or (lambda r: None)
+        self.collect_all = bool(collect_all)
+        self.on_corpus = on_corpus
         self.clock = clock
         self.sleeper = sleeper
         self._stop = stop_event
@@ -249,12 +303,7 @@ class UnownedSurveyor:
         self._seen.add(name)
         res = SurveyResult(name=name, kind=kind, methods=methods)
         self.results.append(res)
-        if kind == OBTAIN_REWARD:
-            how = METHOD_REWARD
-        elif kind == OBTAIN_BUY:
-            how = "/".join(methods) if methods else METHOD_AUTOSHOW
-        else:
-            how = "未知"
+        how = "/".join(methods) if methods else "未知"
         self.on_log(f"统计未拥有：{name} ← {how}（已统计 {len(self.results)} 辆未拥有）")
         self.on_progress(res)
 
@@ -315,15 +364,33 @@ class UnownedSurveyor:
                 cell = cells[c]
                 if not cell or not cell.name or cell.name in self._seen:
                     continue
-                if cell.placeholder:
-                    if self.io.move_to_col(fr, c):
-                        self.io.press("start")           # 购买 (Menu/≡) -> obtain-method popup
-                        text = self.io.popup_text()
-                        self.io.press("a")               # 取消/确定 -> back to grid (never buys)
-                        kind, methods = classify_obtain(text)
-                        self._record(cell.name, kind, methods)
-                    else:
+                # In collect_all mode we open the 购买 popup on EVERY car (owned too) to log its raw
+                # 文案 -- so we can study the full text space + the owned-vs-unowned signal. Normally we
+                # only open it on the un-owned (placeholder) cards.
+                if cell.placeholder or self.collect_all:
+                    if not self.io.move_to_col(fr, c):
                         self.on_log(f"统计未拥有：无法对齐到第 {c + 1} 列,跳过 {cell.name}。")
+                        self._seen.add(cell.name)
+                        continue
+                    self.io.press("start")               # 购买 (Menu/≡) -> obtain-method popup
+                    text = self.io.popup_text()
+                    if is_popup(text):
+                        self.io.press("a")               # 取消/确定 -> back to grid (never buys)
+                    else:
+                        # No popup detected (e.g. a truly-owned car) -> do NOT press A (would 选择
+                        # into the car). The 购买 press was a no-op; the cursor stays on the grid.
+                        self.on_log(f"统计未拥有：{cell.name} 未弹出购买窗(可能已拥有),跳过。")
+                    if self.collect_all and self.on_corpus:
+                        try:
+                            self.on_corpus(cell.name, cell.placeholder, text)
+                        except Exception:
+                            pass
+                    if cell.placeholder:
+                        kind, methods = classify_obtain(text)
+                        self._record(cell.name, kind, methods)   # _record adds to _seen
+                    else:
+                        self._seen.add(cell.name)
+                        self.owned_count += 1
                 else:
                     self._seen.add(cell.name)
                     self.owned_count += 1
@@ -373,7 +440,7 @@ def format_report(summary: dict) -> str:
 # Grid banner / prompt markers that only appear on the 车辆收藏 grid (used to confirm we are on it).
 _GRID_MARKERS_TITLE = "车辆收藏"
 _GRID_MARKERS_PROMPT = ("制造商", "购买")
-_POPUP_MARKERS = ("可通过以下途径获得", "作为奖励出现", "是否要", "季节性赛事", "嘉年华游戏列表")
+_POPUP_MARKERS = POPUP_MARKERS   # shared with the surveyor's popup gate (defined near classify_obtain)
 
 
 class UnownedSurveyIO:

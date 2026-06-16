@@ -25,8 +25,13 @@ from v4.unowned_surveyor import (
     METHOD_AUTOSHOW,
     METHOD_WHEELSPIN,
     METHOD_REWARD,
+    METHOD_BARNFIND,
+    METHOD_MASTERY,
+    METHOD_STORE,
     OBTAIN_BUY,
+    OBTAIN_INFO,
     OBTAIN_REWARD,
+    OBTAIN_BARNFIND,
     OBTAIN_UNKNOWN,
 )
 
@@ -54,6 +59,36 @@ def test_classify_unknown():
     kind, methods = classify_obtain("一些无关文字")
     assert kind == OBTAIN_UNKNOWN
     assert methods == []
+
+
+# --- richer methods discovered in the live 139-car corpus -----------------------------------------
+def test_classify_barnfind():
+    kind, methods = classify_obtain("车辆收藏 | 四处探索，寻找关于该废弃车辆下落的线索... | 确定")
+    assert kind == OBTAIN_BARNFIND
+    assert methods == [METHOD_BARNFIND]
+
+
+def test_classify_collection_category_plus_autoshow():
+    kind, methods = classify_obtain(
+        '车辆收藏 | 此车可通过以下途径获得：在收集簿的"危险标志"类别，车展 | 是否要从车展购买这辆车？ | 取消 | 确认'
+    )
+    assert kind == OBTAIN_BUY                      # 车展 present -> buyable
+    assert "收集簿·危险标志" in methods
+    assert METHOD_AUTOSHOW in methods
+
+
+def test_classify_wheelspin_plus_reward_is_info():
+    # 抽奖 only (no 车展) + the reward note, single 确定 -> info kind
+    kind, methods = classify_obtain(
+        "车辆收藏 | 此车可通过以下途径获得：抽奖 | 此车辆可能在季节赛事或嘉年华游戏列表中作为奖励出现。 | 确定"
+    )
+    assert kind == OBTAIN_INFO
+    assert METHOD_WHEELSPIN in methods and METHOD_REWARD in methods
+
+
+def test_classify_mastery_and_store():
+    assert METHOD_MASTERY in classify_obtain("此车可通过以下途径获得：车辆专精树")[1]
+    assert METHOD_STORE in classify_obtain("此车可通过以下途径获得：商店附加内容")[1]
 
 
 # ----------------------------------------------------------------------------- frame detection
@@ -227,6 +262,24 @@ def test_survey_methods_and_summary():
     report = format_report(summary)
     assert "共 6 辆未拥有" in report
     assert "695 Biposto" in report
+
+
+def test_collect_all_records_every_car_corpus():
+    io = FakeGridIO(_grid())
+    corpus = []
+    s = UnownedSurveyor(
+        io, sleeper=lambda *_: None, collect_all=True,
+        on_corpus=lambda n, p, t: corpus.append((n, p, t)),
+    )
+    assert s.run() == "done"
+    all_names = {cell["name"] for row in _grid() for cell in row}
+    assert {c[0] for c in corpus} == all_names         # corpus has EVERY car (owned + un-owned)
+    assert set(io.starts) == all_names                 # 购买 pressed on every car
+    flags = {c[0]: c[1] for c in corpus}
+    assert flags["695 Biposto"] is True and flags["595 esseesse"] is False
+    text = {c[0]: c[2] for c in corpus}
+    assert "车展" in text["Giulia TZ2"]
+    assert len(s.results) == 6                          # un-owned still classified into results
 
 
 def test_survey_stop_event_halts():
