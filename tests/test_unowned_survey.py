@@ -206,7 +206,7 @@ class FakeGridIO:
     def popup_text(self):
         return self.rows[self.cur_row][self.cur_col].get("popup", "")
 
-    def next_row(self):
+    def next_row(self, before_name=None):
         if self.cur_row + 1 >= len(self.rows):
             return False
         self.cur_row += 1
@@ -341,8 +341,8 @@ def test_survey_recovers_from_stray_modal():
         def popup_text(self):
             return base.popup_text()
 
-        def next_row(self):
-            return base.next_row()
+        def next_row(self, before_name=None):
+            return base.next_row(before_name)
 
     s = UnownedSurveyor(WrapIO(), sleeper=lambda *_: None)
     assert s.run() == "done"

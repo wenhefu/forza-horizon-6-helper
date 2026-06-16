@@ -370,6 +370,7 @@ class UnownedSurveyor:
                 return "done"
             prev_sig = sig
 
+            moved = False        # did we move the cursor off its row-read position this row?
             for c in range(5):
                 if self._stopped():
                     break
@@ -380,6 +381,7 @@ class UnownedSurveyor:
                 # 文案 -- so we can study the full text space + the owned-vs-unowned signal. Normally we
                 # only open it on the un-owned (placeholder) cards.
                 if cell.placeholder or self.collect_all:
+                    moved = True
                     if not self.io.move_to_col(fr, c):
                         self.on_log(f"统计未拥有：无法对齐到第 {c + 1} 列,跳过 {cell.name}。")
                         self._seen.add(cell.name)
@@ -407,7 +409,11 @@ class UnownedSurveyor:
                     self._seen.add(cell.name)
                     self.owned_count += 1
 
-            if not self.io.next_row():
+            # When the cursor never left its row-read position (no placeholder this row), we still
+            # know the focused car name -> let next_row skip its 'before' capture.
+            focused_cell = gv.cells.get(gv.focused)
+            before_name = None if moved else (focused_cell.name if focused_cell else "")
+            if not self.io.next_row(before_name=before_name):
                 self.on_log(
                     f"统计未拥有：已扫到底部(共 {len(self.results)} 辆未拥有 / "
                     f"约 {self.owned_count} 辆已拥有)。"
@@ -566,20 +572,33 @@ class UnownedSurveyIO:
                 return
             self.press("dpad_left")
 
-    def move_to_col(self, row: int, col: int, *, max_tries: int = 6) -> bool:
-        """Align the cursor to (row, col) within the current row, verifying via the focus ring."""
-        for _ in range(max_tries):
+    def move_to_col(self, row: int, col: int, *, max_tries: int = 4) -> bool:
+        """Align the cursor to (row, col) within the current row, verifying via the focus ring.
+
+        Fast path: read the current column once, press the whole delta in one go (no read between --
+        dpad presses are reliable with the settle delay), then verify once + a few corrective steps.
+        That's ~2-3 captures instead of one-per-press, which dominates the survey's wall-clock."""
+        gv = self.read()
+        if gv.focused is None:
+            self.press("dpad_left")                # nudge to re-acquire a ring
+            gv = self.read()
+        if gv.focused is None:
+            return False
+        fc = gv.focused[1]
+        if fc == col:
+            return True
+        btn = "dpad_right" if col > fc else "dpad_left"
+        for _ in range(abs(col - fc)):
             if self._stopped():
                 return False
-            gv = self.read()
-            if gv.focused is None:
-                self.press("dpad_left")            # nudge to re-acquire a ring
-                continue
-            _, fc = gv.focused
-            if fc == col:
-                return True
-            self.press("dpad_right" if col > fc else "dpad_left")
+            self.press(btn)
         gv = self.read()
+        tries = 0
+        while gv.focused is not None and gv.focused[1] != col and tries < max_tries:
+            tries += 1
+            fc2 = gv.focused[1]
+            self.press("dpad_right" if col > fc2 else "dpad_left")
+            gv = self.read()
         return gv.focused is not None and gv.focused[1] == col
 
     def popup_text(self, timeout: float = 4.0) -> str:
@@ -597,10 +616,13 @@ class UnownedSurveyIO:
             self._sleep(0.25)
         return last
 
-    def next_row(self) -> bool:
-        """Press down once; True if the view advanced (the focused car changed)."""
-        before = self.read()
-        before_name = before.cells.get(before.focused).name if before.focused else ""
+    def next_row(self, before_name: str | None = None) -> bool:
+        """Press down once; True if the view advanced (the focused car changed). When the caller
+        already knows the current focused-car name (cursor hasn't moved since its read), pass it as
+        before_name to skip the redundant 'before' capture -- the common no-placeholder row case."""
+        if before_name is None:
+            before = self.read()
+            before_name = before.cells.get(before.focused).name if before.focused else ""
         self.press("dpad_down")
         after = self.read()
         if after.focused is None:
