@@ -735,12 +735,15 @@ class V4App:
                     auto_focus=self.auto_focus.get(),
                 )
                 result = surveyor.run()
-                report = format_report(surveyor.summary())
+                partial = result not in ("done", "stopped")
+                head = "（注意：本次未扫完整个收集簿就结束了，下面是已扫到的部分）\n\n" if partial else ""
+                report = head + format_report(surveyor.summary())
                 self._log("==== 未拥有车辆统计报告 ====")
                 for line in report.splitlines():
                     self._log(line)
                 self._save_survey_report(report)
-                self._log(f"统计未拥有结束：{result}(共 {len(surveyor.results)} 辆未拥有)")
+                done_txt = "已扫完" if result == "done" else ("已停止" if result == "stopped" else f"未扫完({result})")
+                self._log(f"统计未拥有结束：{done_txt}，共 {len(surveyor.results)} 辆未拥有。")
             except Exception as exc:
                 self._log(f"统计未拥有出错:{exc}")
             finally:
