@@ -43,7 +43,7 @@ FONT_TITLE = ("Microsoft YaHei UI", 16, "bold")
 FONT_SECTION = ("Microsoft YaHei UI", 10, "bold")
 FONT_SMALL = ("Microsoft YaHei UI", 8)
 FONT_MONO = ("Consolas", 9)
-PROJECT_URL = "https://github.com/wenhefu/forza-horizon-helper"
+PROJECT_URL = "https://github.com/wenhefu/forza-horizon-6-helper"
 
 PREP_STEPS = [
     {

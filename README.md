@@ -1,20 +1,23 @@
 <div align="center">
 
-# 🏁 Forza Horizon 自动助手 · Forza Horizon Helper
+# 🏁 地平线6 自动助手 · Forza Horizon 6 Helper
 
-**地平线 挂机助手** — 自动买车加点、EventLab 刷图刷钱、拍卖场抢车、清理重复车、一键买光/统计未拥有的车。<br>
-**Forza Horizon AFK automation** — auto money/car farming, EventLab grinding, auction sniping, duplicate cleanup, buy-all / survey un-owned cars.
+> **专为《极限竞速：地平线6》(Forza Horizon 6 / FH6) 打造** —— 适配日本地图、车辆专精、EventLab、车辆收藏。<br>
+> **Built specifically for Forza Horizon 6 (FH6).**
+
+**地平线6 挂机助手** — 自动买车加点、EventLab 刷图刷钱、拍卖场抢车、清理重复车、一键买光/统计未拥有的车。<br>
+**Forza Horizon 6 AFK automation** — auto money/car farming, EventLab grinding, auction sniping, duplicate cleanup, buy-all / survey un-owned cars.
 
 > **只用虚拟 Xbox 手柄 + 只读截屏识别，不注入进程、不修改任何游戏文件。**<br>
 > **Virtual Xbox gamepad + read-only screen capture only — no process injection, no game-file modification.**
 
-[![Release](https://img.shields.io/github/v/release/wenhefu/forza-horizon-helper?label=release&color=27a47b)](https://github.com/wenhefu/forza-horizon-helper/releases/latest)
-[![Downloads](https://img.shields.io/github/downloads/wenhefu/forza-horizon-helper/total?color=27a47b)](https://github.com/wenhefu/forza-horizon-helper/releases)
-[![Stars](https://img.shields.io/github/stars/wenhefu/forza-horizon-helper?style=flat&color=f5a623)](https://github.com/wenhefu/forza-horizon-helper/stargazers)
+[![Release](https://img.shields.io/github/v/release/wenhefu/forza-horizon-6-helper?label=release&color=27a47b)](https://github.com/wenhefu/forza-horizon-6-helper/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/wenhefu/forza-horizon-6-helper/total?color=27a47b)](https://github.com/wenhefu/forza-horizon-6-helper/releases)
+[![Stars](https://img.shields.io/github/stars/wenhefu/forza-horizon-6-helper?style=flat&color=f5a623)](https://github.com/wenhefu/forza-horizon-6-helper/stargazers)
 ![Platform](https://img.shields.io/badge/platform-Windows-blue)
 ![Python](https://img.shields.io/badge/python-3.x-3776ab)
 
-### [⬇️ 下载最新版 / Download the latest `.exe`](https://github.com/wenhefu/forza-horizon-helper/releases/latest)
+### [⬇️ 下载最新版 / Download the latest `.exe`](https://github.com/wenhefu/forza-horizon-6-helper/releases/latest)
 
 双击即用，无需安装 Python。 · Double-click to run, no Python needed.
 
@@ -41,7 +44,7 @@
 
 ## 🚀 快速上手 · Quick start
 
-1. **下载并运行** [`Forza6HelperV4GUI.exe`](https://github.com/wenhefu/forza-horizon-helper/releases/latest)（首次约十几秒在加载识别模型）。<br>Download & run the exe (first launch takes ~15 s to load the vision models).
+1. **下载并运行** [`Forza6HelperV4GUI.exe`](https://github.com/wenhefu/forza-horizon-6-helper/releases/latest)（首次约十几秒在加载识别模型）。<br>Download & run the exe (first launch takes ~15 s to load the vision models).
 2. 需要 **ViGEmBus** 虚拟手柄驱动；没装程序会提示并打开下载页，装完重开。<br>Needs the **ViGEmBus** driver; the app prompts + opens the download page if it's missing.
 3. 游戏用**窗口 / 无边框窗口**模式，运行时保持 Forza 在前台（失焦会自动切回）。<br>Run Forza in **windowed / borderless**, kept in the foreground (auto-refocuses).
 4. **各功能起始页面 · Where to start each feature:**
@@ -84,4 +87,4 @@ This project is for learning and research on automation. Game automation may vio
 
 ---
 
-<sub>关键词 / Keywords: 极限竞速地平线 地平线5 地平线6 自动 挂机 脚本 刷钱 刷车 刷信用点 拍卖 助手 · Forza Horizon 5 / 6 automation bot AFK money car farming auction sniper auto-buy helper gamepad ViGEmBus screen-reading YOLO OCR Python Windows</sub>
+<sub>关键词 / Keywords: 极限竞速地平线6 地平线6 FH6 自动 挂机 脚本 刷钱 刷车 刷信用点 拍卖 助手 · Forza Horizon 6 FH6 automation bot AFK money car farming auction sniper auto-buy helper gamepad ViGEmBus screen-reading YOLO OCR Python Windows</sub>
