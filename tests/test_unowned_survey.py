@@ -301,6 +301,55 @@ def test_survey_stop_event_halts():
     assert reason == "stopped"
 
 
+def test_survey_recovers_from_stray_modal():
+    """A controller-disconnect modal / stray popup left on top of the grid is dismissed with A,
+    then the survey proceeds -- it must NOT bail out as 'left_grid'."""
+    base = FakeGridIO([[_cell("A", True, BUY), _cell("B", False)]])
+    seq = [
+        GridView(on_grid=False, focused=None, cells={}, text="控制器未连接 | 请重新连接控制器。 | 确定"),
+        GridView(on_grid=False, focused=None, cells={}, text="车辆收藏 | 是否要从车展购买这辆车？ | 取消 | 确认"),
+    ]
+    presses = []
+
+    class WrapIO:
+        def __init__(self):
+            self.i = 0
+
+        def focused(self):
+            return True
+
+        def activate(self):
+            pass
+
+        def pin_to_top(self):
+            base.pin_to_top()
+
+        def read(self):
+            if self.i < len(seq):
+                gv = seq[self.i]
+                self.i += 1
+                return gv
+            return base.read()
+
+        def move_to_col(self, r, c):
+            return base.move_to_col(r, c)
+
+        def press(self, b):
+            presses.append(b)
+            base.press(b)
+
+        def popup_text(self):
+            return base.popup_text()
+
+        def next_row(self):
+            return base.next_row()
+
+    s = UnownedSurveyor(WrapIO(), sleeper=lambda *_: None)
+    assert s.run() == "done"
+    assert presses.count("a") >= 2          # dismissed the disconnect modal + the stray popup
+    assert [r.name for r in s.results] == ["A"]
+
+
 def test_survey_leaves_grid_reports_left():
     class OffGridIO(FakeGridIO):
         def read(self):

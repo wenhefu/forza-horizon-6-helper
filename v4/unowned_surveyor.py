@@ -322,6 +322,7 @@ class UnownedSurveyor:
 
         prev_sig = None
         empty = 0
+        recover = 0
         rows = 0
         while not self._stopped() and rows < self.MAX_STEPS:
             rows += 1
@@ -333,12 +334,23 @@ class UnownedSurveyor:
 
             gv = self.io.read()
             if not gv.on_grid:
+                # Recover from a stray modal that the virtual pad's flicker leaves on top of the grid:
+                # the controller-disconnect modal, or a buy/reward popup left open by a prior run.
+                # A dismisses both (确定 / 取消-focused) and returns to the grid -- never a blind press
+                # on the bare grid (that path falls through to the empty-counter below).
+                t = gv.text or ""
+                if (("控制器" in t) or ("重新连接" in t) or is_popup(t)) and recover < 10:
+                    recover += 1
+                    self.io.press("a")
+                    self.sleeper(0.4)
+                    continue
                 empty += 1
                 if empty >= 6:
                     self.on_log("统计未拥有：已离开『车辆收藏』网格页,结束。")
                     return "left_grid"
                 self.sleeper(0.3)
                 continue
+            recover = 0
             if gv.focused is None:
                 empty += 1
                 if empty >= 8:
