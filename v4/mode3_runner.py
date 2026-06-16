@@ -112,6 +112,7 @@ class V4Mode3Runner:
             stall_seconds=self.watchdog_seconds,
         )
         self._farm_mode = "vision"
+        self.farm_remaining_seconds = None   # seconds left in the current farm round (None = not farming)
         self.nav_mode = "v4"  # default: proven full-path V4 nav. "v5" = faster event-driven
         # auto-nav, but it can short-circuit to a false race_menu (skip EventLab) -> opt-in only.
         self.report = V4RunReport(datetime.now(timezone.utc).astimezone().isoformat(), title)
@@ -720,9 +721,11 @@ class V4Mode3Runner:
         while runner.is_running() and not self._stop.is_set():
             elapsed = time.monotonic() - started
             if farm_seconds is None:
+                self.farm_remaining_seconds = None      # 0=一直跑 -> no countdown
                 if not self._sleep(0.25):
                     break
                 continue
+            self.farm_remaining_seconds = max(0.0, farm_seconds - elapsed)
             if elapsed >= farm_seconds and not farm_deadline_logged:
                 farm_deadline_logged = True
                 self._log(
@@ -744,6 +747,7 @@ class V4Mode3Runner:
                 break
             if not self._sleep(0.25):
                 break
+        self.farm_remaining_seconds = None              # round over -> hide the countdown
         if self._stop.is_set():
             return False
         self._log(f"V4 刷分阶段结束：{runner.exit_reason or 'unknown'}。")

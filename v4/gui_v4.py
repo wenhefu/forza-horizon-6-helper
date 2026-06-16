@@ -97,6 +97,7 @@ class V4App:
         self.unowned_max = tk.StringVar(value="5")   # max un-owned cars to buy per run
         self._unowned_thread = None
         self._unowned_stop = threading.Event()
+        self.countdown_var = tk.StringVar(value="")  # prominent farm-round countdown
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
         self.status_var = tk.StringVar(value="正在加载识别模型...")
@@ -226,6 +227,12 @@ class V4App:
                  bg=COLORS["bg_deep"], fg=COLORS["lime"], font=FONT_SMALL, anchor="w").grid(row=0, column=0, sticky="w")
         tk.Label(guide, textvariable=self.driver_status, bg=COLORS["bg_deep"], fg=COLORS["muted"],
                  font=FONT_SMALL, anchor="w").grid(row=1, column=0, sticky="w", pady=(3, 0))
+        # Prominent farm-round countdown box -- shown only while a farm round is running.
+        self.countdown_box = tk.Label(head, textvariable=self.countdown_var, bg=COLORS["accent"],
+                                      fg="#ffffff", font=(FONT[0], 17, "bold"), anchor="center",
+                                      padx=16, pady=10)
+        self.countdown_box.grid(row=3, column=0, sticky="we", pady=(10, 0))
+        self.countdown_box.grid_remove()   # hidden until farming
 
     def _build_options(self, left):
         card = self._card(left, "运行选项")
@@ -708,7 +715,19 @@ class V4App:
             self.status_var.set("运行中...")
         elif self.runner_ready and self.status_var.get() == "运行中...":
             self.status_var.set("已停止")
+        self._update_countdown()
         self.root.after(120, self._tick)
+
+    def _update_countdown(self):
+        # Prominent "本轮跑图剩余 MM:SS" box, visible only while a farm round is counting down.
+        secs = getattr(self.runner, "farm_remaining_seconds", None) if self.runner else None
+        if secs is None:
+            self.countdown_box.grid_remove()
+            return
+        s = int(secs)
+        self.countdown_var.set(f"⏱  本轮跑图剩余  {s // 60:02d}:{s % 60:02d}")
+        self.countdown_box.config(bg=COLORS["danger"] if s <= 30 else COLORS["accent"])
+        self.countdown_box.grid()
 
     def on_close(self):
         try:
