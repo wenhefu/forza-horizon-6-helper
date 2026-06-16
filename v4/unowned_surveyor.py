@@ -312,16 +312,18 @@ class UnownedSurveyor:
 
     def run(self) -> str:
         """Survey the whole grid by walking the cursor cell-by-cell in a SNAKE (boustrophedon):
-        right across a row, down, left across the next, down, ... At every step it classifies the
+        right across a row, down, left across the next, down, ... It does NOT scroll to the top first
+        -- it starts from wherever the cursor is and, because the grid WRAPS (down past the bottom
+        loops to the top -- verified live), it laps the entire grid and stops once it keeps re-seeing
+        already-catalogued cars (every visited car is remembered). At every step it classifies the
         cursor's FOCUSED cell -- the focus ring is ground truth and the focused card is clearest to
-        read -- and processes an un-owned card IN PLACE. Because it visits one concrete cell per step
-        (never a one-shot 5-up read + blind move), it cannot skip a cell. Every visited car is
-        remembered; when it stops finding ANY new car for a while, the grid is covered and it stops."""
+        read -- and processes an un-owned card IN PLACE, so it cannot skip a cell."""
         self.on_log("统计未拥有车辆启动：请先停在『车辆收藏』网格页(收集簿→旅行家→车辆收藏)。只读不购买。")
         started = self.clock()
         if not self._ensure_focus():
             return "not_focused"
-        self.io.pin_to_top()                     # scroll all the way to the TRUE top first
+        # No pin-to-top: start from the current view (the grid wraps, so the snake covers everything
+        # and terminates when it laps back to seen cars -- avoids the janky initial scroll).
 
         direction = 1                            # +1 = rightward across a row, -1 = leftward
         last_action = None                       # "H" = last move was horizontal, "D" = down

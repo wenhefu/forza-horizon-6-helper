@@ -217,17 +217,19 @@ class FakeGridIO:
         elif btn == "dpad_left":
             self.cur_col = max(self.cur_col - 1, 0)
         elif btn == "dpad_up":
-            if self.cur_row > 0:
-                self.cur_row -= 1
-                if self.cur_row < self.top:
-                    self.top = self.cur_row
-                self.cur_col = min(self.cur_col, max(0, self._rowlen(self.cur_row) - 1))
+            self.cur_row = (self.cur_row - 1) % len(self.rows)    # grid WRAPS (verified live)
+            self._fix_view()
         elif btn == "dpad_down":
-            if self.cur_row < len(self.rows) - 1:
-                self.cur_row += 1
-                if self.cur_row - self.top > 2:
-                    self.top = self.cur_row - 2
-                self.cur_col = min(self.cur_col, max(0, self._rowlen(self.cur_row) - 1))
+            self.cur_row = (self.cur_row + 1) % len(self.rows)    # grid WRAPS (verified live)
+            self._fix_view()
+
+    def _fix_view(self):
+        if self.cur_row < self.top:
+            self.top = self.cur_row
+        elif self.cur_row > self.top + 2:
+            self.top = self.cur_row - 2
+        self.top = max(0, min(self.top, max(0, len(self.rows) - 3)))
+        self.cur_col = min(self.cur_col, max(0, self._rowlen(self.cur_row) - 1))
 
     def popup_text(self):
         row = self.rows[self.cur_row]
@@ -389,6 +391,23 @@ def test_snake_handles_partial_last_row():
     s = UnownedSurveyor(io, sleeper=lambda *_: None)
     assert s.run() == "done"
     assert {r.name for r in s.results} == {"A", "C", "F"}
+
+
+def test_snake_no_pin_covers_rows_above_a_mid_start():
+    """No pin-to-top: start MID-grid. The grid wraps, so the snake laps and covers the rows ABOVE
+    the start too -- the exact case the old fixed pin_to_top missed. Placeholders span every row."""
+    grid = [
+        [_cell("A", True, BUY), _cell("o1", False), _cell("B", True, REWARD), _cell("o2", False), _cell("o3", False)],
+        [_cell("o4", False), _cell("C", True, LOTTERY), _cell("o5", False), _cell("D", True, BUY), _cell("o6", False)],
+        [_cell("E", True, BUY), _cell("o7", False), _cell("o8", False), _cell("F", True, REWARD), _cell("o9", False)],
+        [_cell("o10", False), _cell("G", True, BUY), _cell("o11", False), _cell("o12", False), _cell("H", True, REWARD)],
+    ]
+    io = FakeGridIO(grid)
+    io.cur_row, io.cur_col = 2, 3          # START mid-grid (row 2), not the top
+    io._fix_view()
+    s = UnownedSurveyor(io, sleeper=lambda *_: None)
+    assert s.run() == "done"
+    assert {r.name for r in s.results} == {"A", "B", "C", "D", "E", "F", "G", "H"}
 
 
 def test_survey_leaves_grid_reports_left():
