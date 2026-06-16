@@ -1,5 +1,44 @@
 # Handoff - Forza Horizon 6 Helper
 
+## Build & test (2026-06-16) — v1.2 (two new features)
+
+Two user-requested features, both validated live by driving the game myself.
+
+- **Farm-round countdown (Feature 1).** `v4/mode3_runner.py` publishes `farm_remaining_seconds`
+  during the vision farm phase (None when not farming, None when farm time = 0 / 一直跑). The GUI
+  (`gui_v4.py` `_update_countdown`, ticked every 120ms) shows a big accent-color box
+  「⏱ 本轮跑图剩余 MM:SS」in the header; it flips to the danger color in the last 30s and hides
+  between rounds. Tiny, additive; full suite stayed green.
+- **「统计未拥有的车」survey (Feature 2) — NEW, READ-ONLY.** `v4/unowned_surveyor.py`
+  (`UnownedSurveyor` + `UnownedSurveyIO`, injectable IO, 15 unit tests). On the **车辆收藏** grid
+  (收集簿→旅行家→车辆收藏), walks the 5-column grid and for each UN-OWNED card presses **购买 = the
+  Menu/≡ button (`start`, keyboard=Space)** to open the obtain-method popup, reads it, then cancels
+  with **A** — never buys. Popup variants: buy → "此车可通过以下途径获得：抽奖,车展。是否要从车展购买
+  这辆车?" [取消(focused)/确认]; reward → "此车辆可能在季节性赛事或嘉年华游戏列表中作为奖励出现。"
+  [确定]. **A safely dismisses BOTH** (取消 is default-focused / single 确定). Report grouped by
+  车展 / 抽奖 / 季节赛事-嘉年华奖励, saved to `logs/未拥有统计.txt`.
+  - The collection grid has **no recognizer tag** (it mislabels as unknown/vehicle_buy_grid/
+    modal_warning), so the module senses everything from the frame itself, all validated:
+    - **un-owned vs owned**: a card's image-area edge strips are a flat NEUTRAL gray (the gray
+      "DISCOVER JAPAN" placeholder) vs a tinted near-white studio bg (a car render). Rule:
+      `mean<240 and std<22 and neutral<9` → un-owned. **30/30 cells** correct across two live frames.
+      (NB: the render/placeholder split is *discovered vs undiscovered*, NOT owned vs not — but the
+      user's rule "没显示车的方格=还没拥有" is what we catalog, and a render's 购买 popup is identical
+      to a buy popup so the popup itself can't tell ownership; the gray placeholder is the signal.)
+    - **focused card**: the lime focus-ring's grid-band centroid → (row, col). `move_to_col` walks
+      the cursor and re-verifies via this each step (self-correcting, no cumulative drift).
+    - **car names**: OCR items at each cell's name band (row_center + 0.074). Names dedup by string
+      (a model with duplicate-name variants is counted once — acceptable for a survey).
+  - **16:9 geometry** (the helper enforces it): col centers (0.152,0.324,0.496,0.667,0.839), row
+    centers (0.316,0.548,0.779). **Scroll model**: cursor walks cell-by-cell; past the bottom
+    visible row the grid scrolls up one row, pinning the cursor to **visual row 3** — so the loop
+    processes the cursor's row then `next_row()` (down + check focused car changed), ending at the
+    bottom. GUI: 开始统计 / 停止; handles the controller-disconnect modal (A) up front.
+  - **Validated LIVE end-to-end** (bounded 2.5-min run): traversed rows, scrolled, surveyed 14
+    un-owned cars, classified 车展/抽奖/季节赛事-嘉年华奖励 correctly, produced the grouped report.
+    Dev tools: `validate_survey.py` (primitive smoke), `validate_survey_run.py` (bounded full run).
+  - Spec: `v4.unowned_surveyor` added to `Forza6HelperV4GUI.spec` hiddenimports (lazy GUI import).
+
 ## Build & test (2026-06-16) — v1.1 (shipped to GitHub Release)
 
 Hardening of the 买未拥有 (buy-all-unowned) loop for long unattended runs, + a simplified-Chinese
