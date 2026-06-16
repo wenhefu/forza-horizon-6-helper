@@ -178,7 +178,7 @@ def read_cell_name(ocr_items, row: int, col: int) -> str:
 
 def _method_label(tok: str) -> str:
     """Map one raw obtain-method token to a canonical label (substring matching survives OCR noise)."""
-    if "车展" in tok:
+    if "车展" in tok or tok.strip(" 、，,。\"'“”「」") == "车":   # bare "车" = OCR-truncated 车展
         return METHOD_AUTOSHOW
     if "抽奖" in tok or "转盘" in tok:
         return METHOD_WHEELSPIN
@@ -202,8 +202,9 @@ def classify_obtain(text: str):
     kind in buy|info|reward|barnfind|unknown. `methods` is the de-duplicated list of canonical labels
     the report groups by. Built + validated against the live 139-car corpus."""
     t = text or ""
-    # Barn-find ("四处探索，寻找关于该废弃车辆下落的线索...")
-    if "废弃车辆" in t or ("线索" in t and "寻找" in t):
+    # Barn-find / wreck. Two live variants:
+    #   "四处探索，寻找关于该废弃车辆下落的线索..."  and  "听说这辆车被人遗弃在车房里..."
+    if ("废弃车辆" in t or "车房" in t or "遗弃" in t or ("线索" in t and "寻找" in t)):
         return OBTAIN_BARNFIND, [METHOD_BARNFIND]
     methods: list[str] = []
     m = _OBTAIN_RE.search(t)

@@ -68,6 +68,13 @@ def test_classify_barnfind():
     assert methods == [METHOD_BARNFIND]
 
 
+def test_classify_barnfind_garage_variant():
+    # second live variant -- previously fell through to 未知 (24/112 cars on the live grid)
+    kind, methods = classify_obtain("车辆收藏 | 听说这辆车被人遗弃在车房里... | 确定")
+    assert kind == OBTAIN_BARNFIND
+    assert methods == [METHOD_BARNFIND]
+
+
 def test_classify_collection_category_plus_autoshow():
     kind, methods = classify_obtain(
         '车辆收藏 | 此车可通过以下途径获得：在收集簿的"危险标志"类别，车展 | 是否要从车展购买这辆车？ | 取消 | 确认'
