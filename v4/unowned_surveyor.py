@@ -425,9 +425,10 @@ def format_report(summary: dict) -> str:
     lines = []
     lines.append(f"未拥有车辆统计：共 {summary['total_unowned']} 辆未拥有")
     by = summary.get("by_method", {})
-    # stable, friendly ordering
-    order = [METHOD_AUTOSHOW, METHOD_WHEELSPIN, METHOD_REWARD]
-    keys = [k for k in order if k in by] + [k for k in by if k not in order]
+    # stable, friendly ordering (common methods first, 收集簿·* and any novel labels after)
+    order = [METHOD_AUTOSHOW, METHOD_WHEELSPIN, METHOD_REWARD,
+             METHOD_BARNFIND, METHOD_MASTERY, METHOD_STORE]
+    keys = [k for k in order if k in by] + sorted(k for k in by if k not in order)
     for k in keys:
         cars = by[k]
         lines.append("")

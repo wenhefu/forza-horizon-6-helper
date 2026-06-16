@@ -38,6 +38,20 @@ Two user-requested features, both validated live by driving the game myself.
     un-owned cars, classified 车展/抽奖/季节赛事-嘉年华奖励 correctly, produced the grouped report.
     Dev tools: `validate_survey.py` (primitive smoke), `validate_survey_run.py` (bounded full run).
   - Spec: `v4.unowned_surveyor` added to `Forza6HelperV4GUI.spec` hiddenimports (lazy GUI import).
+  - **Data-driven classifier rebuild (user's idea: collect文案 → analyze → classify).** Drove the
+    game to press 购买 on ALL 139 cars (`collect_all` + `on_corpus` → `logs/购买文案语料.jsonl`):
+    - **Obtain methods are far richer than 3 categories.** `classify_obtain` now parses 抽奖 / 车展 /
+      季节赛事-嘉年华奖励 / 收集簿·<类别>(危险标志/一日游/测速区间/地平线传奇赛/车库/奖励广告牌/地平线宣传
+      活动/地平线传奇/车辆收藏) / 车辆专精树 / 商店·DLC / 谷仓车(废弃车辆/barn-find). **0 "unknown"
+      over the 138 popup-cars** (corpus replay). +8 hermetic tests from real corpus strings.
+    - **Ownership can't come from the popup.** 138/139 cars showed a buy/reward popup; only 288 GTO
+      showed NONE. Owned autoshow cars are **re-buyable** → same buy popup → "has popup" ≠ un-owned;
+      only "NO popup" is provably owned. **Decision (user-chosen): keep the visual rule — gray
+      「DISCOVER」placeholder = un-owned** — and use the popup only for the obtain METHOD. So the
+      surveyor's default (placeholder-only survey) stands, now with the rich classifier. Caveat: a
+      "discovered-but-unowned" render card is treated as owned (missed) -- accepted by the user.
+    - `is_popup()` gate (incl. modal button words 确定/确认/取消) means a no-popup car is never
+      mis-pressed into 选择. Dev tool: `collect_corpus.py`.
 
 ## Build & test (2026-06-16) — v1.1 (shipped to GitHub Release)
 
