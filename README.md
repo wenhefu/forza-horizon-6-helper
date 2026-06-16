@@ -1,100 +1,87 @@
-# 地平线6 助手 · V4 GUI 版（最新）
+<div align="center">
 
-> **认准这一个：`Forza6HelperV4GUI.exe`。**
-> 早期的 V1 / V2 / V3（老 `Forza6Helper.exe`、命令行「模式一/二/三」、`Forza6HelperV4.exe`，
-> 以及 `README_V2.md` / `README_VISION.md` / `README_V4.md`）**都已被它取代，不再维护，别用了**。
-> 新功能和修复只在 `Forza6HelperV4GUI.exe` 上做。
+# 🏁 Forza Horizon 自动助手 · Forza Horizon Helper
 
-一句话：用**虚拟 Xbox 手柄 + 屏幕识别（YOLO + OCR）**自动玩地平线6 的「模式三」主线，并附带
-**① 技术点感知买车、② 清理重复车、③ 拍卖场抢车**三大助手功能。
-**不注入进程、不改游戏文件**——只读屏幕、只模拟手柄，游戏必须在前台。
+**地平线 挂机助手** — 自动买车加点、EventLab 刷图刷钱、拍卖场抢车、清理重复车、一键买光/统计未拥有的车。<br>
+**Forza Horizon AFK automation** — auto money/car farming, EventLab grinding, auction sniping, duplicate cleanup, buy-all / survey un-owned cars.
 
----
+> **只用虚拟 Xbox 手柄 + 只读截屏识别，不注入进程、不修改任何游戏文件。**<br>
+> **Virtual Xbox gamepad + read-only screen capture only — no process injection, no game-file modification.**
 
-## 三大功能
+[![Release](https://img.shields.io/github/v/release/wenhefu/forza-horizon-helper?label=release&color=27a47b)](https://github.com/wenhefu/forza-horizon-helper/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/wenhefu/forza-horizon-helper/total?color=27a47b)](https://github.com/wenhefu/forza-horizon-helper/releases)
+[![Stars](https://img.shields.io/github/stars/wenhefu/forza-horizon-helper?style=flat&color=f5a623)](https://github.com/wenhefu/forza-horizon-helper/stargazers)
+![Platform](https://img.shields.io/badge/platform-Windows-blue)
+![Python](https://img.shields.io/badge/python-3.x-3776ab)
 
-### ① 模式三主线（GUI「开始」）
-买 22B + 加车辆熟练度（**技术点用完自动停**，不会多买一辆白费）→ 导航到 EventLab 收藏赛事 →
-筛选收藏车 → 确认选中 22B → 进开始赛事菜单 → 视觉刷分（保持油门、结果页重开）。
-全程带看门狗，卡住会自动恢复。可勾选「**导航用 V5 事件驱动**」走更快的反应式导航。
+### [⬇️ 下载最新版 / Download the latest `.exe`](https://github.com/wenhefu/forza-horizon-helper/releases/latest)
 
-### ② 清理重复车（GUI「开始清理」）
-用游戏**自带的「重复项」筛选**找出重复车，逐辆删除（从车库移除）。**三重保护**：
-- **正在驾驶的车**没有「移除」选项（游戏自带保护，删不了）；
-- **已收藏的车**自动跳过；
-- 每次删除前必须**核对到「确定要移除」确认框**才按「嗯」。
+双击即用，无需安装 Python。 · Double-click to run, no Python needed.
 
-可填「车名含」（默认 `22B`）+「最多删 N 辆」。
-注意：从车库移除是**清库存、不返积分**（地平线里回收积分只能靠拍卖）。
-实测：200+ 辆重复 22B 清完、0 误删、farm 车没动。
+![界面截图 / Screenshot](docs/screenshot.png)
 
-### ③ 拍卖场抢车（GUI「空跑验证 / 开始抢车」）
-你先在游戏里设好搜索，助手自动**买断**目标车。
-- **空跑验证**：走到「车辆详情」看到买断项就退出，**零花费**，先确认它认得对；
-- **开始抢车（真买）**：选择 → 详情 → 到「买断」→ 买断确认 → 嗯 → 买断成功 → 确定 → 自动回列表；
-- **只买断、绝不出价**：详情页默认停在「竞价」，助手只按**一次**「下」到「买断」，且**核对是
-  「买断」确认框才下手**；万一落到「竞价」框会**拒绝操作**（这些确认框不吃返回键，宁可不动也不误价）；
-- 买到的车停在**我的竞价**，记得去**领取**进车库。
-
-> 另外：「把地平线调成 16:9」可把游戏窗口规整成 16:9，让识别在超宽屏上也一致。
+</div>
 
 ---
 
-## 一次性准备
-1. 安装 **ViGEmBus 驱动**（虚拟手柄的系统驱动）。没装会自动弹提示并打开官方安装页，界面顶部也有
-   安装/修复按钮。若报 `VIGEM_ERROR_BUS_NOT_FOUND`，就是这台电脑还没装好，装完建议重启。
-2. 游戏设成**窗口 / 无边框窗口**（全屏独占下截不到屏）。
-3. 只有想改代码 / 自己打包的人，才需要再装 **Python 3**。
+## ✨ 功能一览 · Features
 
-## 怎么用
-1. 打开 `Forza6HelperV4GUI.exe`，保持**地平线在前台、别切窗口**（窗口模式最稳）。
-2. 等界面顶部显示「**识别模型已就绪**」。
-3. 按需要点对应按钮：
-   - **模式三**：把加满点的 `1998 Subaru Impreza 22B-STI` 加入收藏并设为当前驾驶车；把刷分
-     EventLab 图放进「创意中心→游玩赛事→我的收藏」第一位；停在暂停菜单首页 → 点「**开始**」。
-   - **清理重复车**：进「我的车辆」（暂停→车辆→更换车辆）或停在车辆标签页 → 填车名/数量 → 点「**开始清理**」。
-   - **拍卖场抢车**：拍卖场 → 搜索拍卖 → 设「型号 / 最高买断价」→ 确认 → 停在**结果页（有车在拍）**
-     → 先点「**空跑验证**」确认认得对，再点「**开始抢车**」。
-4. 随时点「**停止**」，或直接关窗口。日志在 `logs\forza6helper.log`，界面里「打开日志」可直接查看。
+| 功能 · Feature | 说明 · What it does |
+|---|---|
+| **模式三循环**<br>Mode-3 farming loop | 自动买车(斯巴鲁 22B)+ 加满**车辆专精** → 导航到 EventLab 刷分赛 → 视觉刷图 → 收尾，无限循环。可选「先买车再跑图」或「先跑图再买车」；跑图时顶部显示**本轮剩余时间**倒计时；技术点耗尽自动跳过提示继续。<br>Buys a car, maxes mastery, navigates to an EventLab race, grinds by vision, loops forever. Per-round countdown box; survives skill-point-empty popups. |
+| **拍卖场抢车**<br>Auction sniper | 在「搜寻」页设好车型 + 最高买断价，不停重搜，目标一出现就**买断**(**只买断、绝不竞价**)。<br>Re-searches the auction house and **buys out** your target the instant it appears — buyout only, never bids. |
+| **清理重复车**<br>Duplicate cleanup | 用游戏自带「重复项」筛选批量删除多余的某型号车，自动**保留收藏的 / 正在驾驶的**，删前核对确认框。<br>Bulk-deletes duplicate cars, auto-skipping favorited / in-use ones, confirming each removal. |
+| **买未拥有的车**<br>Buy all un-owned | 在车展自动勾「未拥有」筛选，一辆辆把没有的车全买下来。<br>Applies the "un-owned" filter in the autoshow and buys every missing car. |
+| **统计未拥有的车** 🔎<br>Survey un-owned (read-only) | 在『车辆收藏』网格逐辆扫描未拥有的车，识别每辆的**获取方式**(车展/抽奖/季节奖励/收集簿各类别/车辆专精树/谷仓车…)并生成分组报告。**只看不买。**<br>Scans the Vehicle Collection grid and reports every un-owned car grouped by how it's obtained. **Read-only — never buys.** |
+| **一键 16:9**<br>Normalize to 16:9 | 把游戏窗口规整成 16:9，让识别在任意显示器(含带鱼屏)上都稳定。<br>Snaps the game window to 16:9 so recognition is stable on any monitor. |
+
+> 每个功能都有独立的「停止」键；数量不设上限，跑到完成或手动停为止。<br>Every feature has its own Stop button; no count caps.
 
 ---
 
-## 边界（安全策略，始终遵守）
-- **不注入**游戏进程、**不 hook**、**不 KeepActive / 假装前台**、**不修改游戏文件**。
-- 输入只用 **ViGEmBus + `vgamepad`** 虚拟 Xbox 手柄；截屏**只读不保存**。
-- **游戏必须在前台**；不在前台就暂停 / 停止，绝不偷偷切回。
-- **每次只按一个键再重新识别**；删除 / 买断 / 出价这类危险操作，都必须**先核对确认框**才执行。
-- ⚠️ 自动化违反 Forza 服务条款，理论上有**封号风险**；地平线又是常驻在线的共享世界（在线遥测较严），
-  **请自行斟酌**。为什么坚决不注入：nofocusloss 那类“强力后台”靠注入进程，配合首发反作弊**会被永久封号**。
+## 🚀 快速上手 · Quick start
+
+1. **下载并运行** [`Forza6HelperV4GUI.exe`](https://github.com/wenhefu/forza-horizon-helper/releases/latest)（首次约十几秒在加载识别模型）。<br>Download & run the exe (first launch takes ~15 s to load the vision models).
+2. 需要 **ViGEmBus** 虚拟手柄驱动；没装程序会提示并打开下载页，装完重开。<br>Needs the **ViGEmBus** driver; the app prompts + opens the download page if it's missing.
+3. 游戏用**窗口 / 无边框窗口**模式，运行时保持 Forza 在前台（失焦会自动切回）。<br>Run Forza in **windowed / borderless**, kept in the foreground (auto-refocuses).
+4. **各功能起始页面 · Where to start each feature:**
+   - 模式三 Mode-3 → 暂停菜单 Pause menu
+   - 拍卖抢车 Auction → 拍卖场→搜索拍卖，停在「搜寻」配置页 Auction house → search config page
+   - 清理重复 Dedup → 我的车辆 / 车辆标签页 My Cars / vehicle tab
+   - 买未拥有 Buy un-owned → 车辆→购买车与二手车→车展网格页 Autoshow grid
+   - 统计未拥有 Survey → 收集簿→旅行家→车辆收藏网格页 Collection grid
 
 ---
 
-## 自己打包成 exe（开发者）
+## 🛡️ 原理与安全 · How it works & safety
+
+- **只发标准虚拟 Xbox 手柄输入**（通过 ViGEmBus / `vgamepad`），和你自己拿手柄按没区别。<br>Sends only standard virtual Xbox gamepad input via ViGEmBus.
+- **只读截屏 + 本地识别**（YOLO ONNX 控件检测 + RapidOCR 中文识别 + 规则 + HSV 高亮掩码），**不读写游戏内存、不注入、不 hook、不修改任何游戏文件**。<br>Read-only screen capture + local vision (YOLO + OCR + rules). No memory access, no injection, no hooks, no file edits.
+- 需要游戏保持前台（失焦自动切回，属正常窗口切换）；危险操作（删除/买断）一律**先核对确认框**才执行。<br>Foreground-only; destructive actions verify the confirm dialog first.
+
+---
+
+## 🧑‍💻 开发者 · Build from source
+
 ```powershell
+# install deps into a venv, then:
 .venv\Scripts\python -m PyInstaller Forza6HelperV4GUI.spec --noconfirm --clean
-```
-产物：`dist\Forza6HelperV4GUI.exe`。
-`Forza6HelperV4GUI.spec` 的 `hiddenimports` **必须**列出所有懒加载模块
-（`v4.auction_runner` / `v4.sell_runner` / `v4.sell_planner` / `v3.buying_ui` / `v5.*` 等），
-否则冻结后的 exe 里这些功能会崩。
+# -> dist\Forza6HelperV4GUI.exe
 
-测试（不碰游戏、不依赖手柄）：
-```powershell
+# tests (no game / gamepad needed):
 .venv\Scripts\python -m pytest -q
 ```
-当前：**226 passed, 22 skipped**。
 
-技术栈：YOLO ONNX（控件检测）+ RapidOCR（中文文字/价格/技术点）+ 规则 + HSV 高亮掩码；
-事件驱动的 V5 反应式导航为可选加速路径。
+技术栈 / Stack：Python · YOLO ONNX · RapidOCR · ViGEmBus(`vgamepad`) · dxcam · Tkinter。
+`Forza6HelperV4GUI.spec` 的 `hiddenimports` 必须列出所有懒加载模块（`v4.*` / `v5.*`），否则冻结后崩。
 
 ---
 
-## 旧版本（已淘汰，别用）
-以下都被 `Forza6HelperV4GUI.exe` 取代，仅作历史留存，不再维护：
-- 老 `Forza6Helper.exe` + 命令行「模式一/二/三」（`modes.py` / `gui.py` / `app_controller.py` 架构）；
-- `Forza6HelperV4.exe` 命令行视觉版（`v4_launcher.py`）；
-- 文档 `README_V2.md` / `README_VISION.md` / `README_V4.md`。
+## ⚠️ 免责声明 · Disclaimer
 
-## 仓库 / 反馈
-- <https://github.com/wenhefu/forza-horizon-helper>
-- 界面右上角的「GitHub / 反馈」也会打开本仓库。
+本工具仅供学习与研究自动化技术。使用任何游戏自动化都可能违反游戏服务条款，由此产生的一切后果（包括但不限于账号风险）由使用者自行承担。<br>
+This project is for learning and research on automation. Game automation may violate the game's Terms of Service; you assume all resulting risk (including account bans).
+
+---
+
+<sub>关键词 / Keywords: 极限竞速地平线 地平线5 地平线6 自动 挂机 脚本 刷钱 刷车 刷信用点 拍卖 助手 · Forza Horizon 5 / 6 automation bot AFK money car farming auction sniper auto-buy helper gamepad ViGEmBus screen-reading YOLO OCR Python Windows</sub>
