@@ -25,15 +25,15 @@ Two user-requested features, both validated live by driving the game myself.
       (NB: the render/placeholder split is *discovered vs undiscovered*, NOT owned vs not — but the
       user's rule "没显示车的方格=还没拥有" is what we catalog, and a render's 购买 popup is identical
       to a buy popup so the popup itself can't tell ownership; the gray placeholder is the signal.)
-    - **focused card**: the lime focus-ring's grid-band centroid → (row, col). `move_to_col` walks
-      the cursor and re-verifies via this each step (self-correcting, no cumulative drift).
+    - **focused card**: the lime focus-ring's grid-band centroid → (row, col).
     - **car names**: OCR items at each cell's name band (row_center + 0.074). Names dedup by string
       (a model with duplicate-name variants is counted once — acceptable for a survey).
   - **16:9 geometry** (the helper enforces it): col centers (0.152,0.324,0.496,0.667,0.839), row
-    centers (0.316,0.548,0.779). **Scroll model**: cursor walks cell-by-cell; past the bottom
-    visible row the grid scrolls up one row, pinning the cursor to **visual row 3** — so the loop
-    processes the cursor's row then `next_row()` (down + check focused car changed), ending at the
-    bottom. GUI: 开始统计 / 停止; handles the controller-disconnect modal (A) up front.
+    centers (0.316,0.548,0.779).
+  - **Traversal = SNAKE walk (rewritten — see "missed cars" fix below).** The cursor walks one cell
+    per step (right across a row, down, left across the next, …) and classifies the FOCUSED cell in
+    place; it can't skip a cell. `pin_to_top` first scrolls to the TRUE top (fast up-taps until the
+    placeholder pattern is stable). GUI: 开始统计 / 停止; handles the controller-disconnect modal (A).
   - **Validated LIVE end-to-end** (bounded 2.5-min run): traversed rows, scrolled, surveyed 14
     un-owned cars, classified 车展/抽奖/季节赛事-嘉年华奖励 correctly, produced the grouped report.
     Dev tools: `validate_survey.py` (primitive smoke), `validate_survey_run.py` (bounded full run).
@@ -52,6 +52,19 @@ Two user-requested features, both validated live by driving the game myself.
       "discovered-but-unowned" render card is treated as owned (missed) -- accepted by the user.
     - `is_popup()` gate (incl. modal button words 确定/确认/取消) means a no-popup car is never
       mis-pressed into 选择. Dev tool: `collect_corpus.py`.
+  - **"Missed cars" fix (user-reported: 漏了几个, 顺序有问题).** The first traversal was a per-row
+    batch: one 5-cell read + `move_to_col` to each placeholder. If that single frame's OCR/placeholder
+    detection missed a cell, the MIDDLE placeholder was silently skipped (caught cols 1 & 5, skipped
+    Giulia TZ2 at col 4); and `pin_to_top` pressed a FIXED 7 ups, never reaching the true top of a
+    ~114-row collection (top rows unscanned). **Rewrote `run()` as a cell-by-cell SNAKE walk**: the
+    cursor visits one concrete cell per step and classifies the FOCUSED cell in place (can't skip);
+    ends when no new car appears for `NO_PROGRESS_LIMIT` steps. **`pin_to_top` now reaches the TRUE
+    top** via fast up-taps until the visible placeholder PATTERN (deterministic color mask, not jittery
+    OCR) is stable. Regression tests: all-placeholder row + multi-placeholder rows caught completely;
+    partial last row handled. Live full-grid run: **112 un-owned (vs 84 before)** -- the snake catches
+    what the batch missed. Two more classifier gaps the bigger run surfaced, now fixed: a 2nd barn-find
+    文案 "听说这辆车被人遗弃在车房里…" (车房/遗弃 → 谷仓车) and a lone OCR-truncated "车" token → 车展.
+    Net: 112-car survey classifies with **0 未知**. 295 tests pass.
 
 ## Build & test (2026-06-16) — v1.1 (shipped to GitHub Release)
 
