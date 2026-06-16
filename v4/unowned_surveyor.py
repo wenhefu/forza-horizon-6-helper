@@ -401,6 +401,9 @@ class UnownedSurveyor:
                             pass
                     if cell.placeholder:
                         kind, methods = classify_obtain(text)
+                        if kind == OBTAIN_UNKNOWN:
+                            # log the raw 文案 so an unrecognized obtain method is diagnosable
+                            self.on_log(f"统计未拥有[未知文案] {cell.name}: {(text or '')[:90]}")
                         self._record(cell.name, kind, methods)   # _record adds to _seen
                     else:
                         self._seen.add(cell.name)
