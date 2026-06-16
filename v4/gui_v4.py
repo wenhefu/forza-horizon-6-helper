@@ -97,6 +97,9 @@ class V4App:
         self.unowned_max = tk.StringVar(value="5")   # max un-owned cars to buy per run
         self._unowned_thread = None
         self._unowned_stop = threading.Event()
+        # survey un-owned cars (车辆收藏 grid) -- READ-ONLY catalog of what's missing + how to get it
+        self._survey_thread = None
+        self._survey_stop = threading.Event()
         self.countdown_var = tk.StringVar(value="")  # prominent farm-round countdown
         self.win_target = tk.StringVar(value=window_util.DEFAULT_PRESET)
         self.driver_status = tk.StringVar(value="正在检查虚拟手柄驱动...")
@@ -321,8 +324,20 @@ class V4App:
         self.unowned_stop_btn = ttk.Button(unownedrow, text="停止", command=self.on_unowned_stop,
                                            style="Stop.TButton", state="disabled")
         self.unowned_stop_btn.pack(side="left")
+        # Survey un-owned cars (收集簿→旅行家→车辆收藏 grid): catalog every UN-OWNED car + how each is
+        # obtained. READ-ONLY -- it presses 购买 only to read the obtain-method popup, then cancels.
+        surveyrow = tk.Frame(body, bg=COLORS["surface"])
+        surveyrow.grid(row=5, column=0, columnspan=4, sticky="we", pady=(12, 0))
+        tk.Label(surveyrow, text="统计未拥有的车(停在『车辆收藏』网格页 · 只读不买):", bg=COLORS["surface"],
+                 fg=COLORS["text"], font=FONT).pack(side="left")
+        self.survey_btn = ttk.Button(surveyrow, text="开始统计", command=self.on_unowned_survey,
+                                     style="App.TButton", state="disabled")
+        self.survey_btn.pack(side="left", padx=(10, 6))
+        self.survey_stop_btn = ttk.Button(surveyrow, text="停止", command=self.on_unowned_survey_stop,
+                                          style="Stop.TButton", state="disabled")
+        self.survey_stop_btn.pack(side="left")
         tk.Label(body, textvariable=self.status_var, bg=COLORS["surface"], fg=COLORS["muted"],
-                 font=FONT_SMALL, anchor="w").grid(row=5, column=0, columnspan=4, sticky="w", pady=(10, 0))
+                 font=FONT_SMALL, anchor="w").grid(row=6, column=0, columnspan=4, sticky="w", pady=(10, 0))
 
     def _build_log(self, content):
         card = self._card(content, "运行日志")
@@ -436,6 +451,7 @@ class V4App:
         self._sell_stop.set()   # also stop a running duplicate-clear
         self._snipe_stop.set()  # ...and a running auction snipe
         self._unowned_stop.set()  # ...and a running buy-all-unowned
+        self._survey_stop.set()   # ...and a running un-owned survey
         self._log("已请求停止。")
 
     def _sell_busy(self) -> bool:
@@ -651,6 +667,93 @@ class V4App:
         self._unowned_thread = threading.Thread(target=worker, name="v4-gui-unowned", daemon=True)
         self._unowned_thread.start()
 
+    # -- survey un-owned cars (READ-ONLY) -------------------------------------
+    def _survey_busy(self) -> bool:
+        return self._survey_thread is not None and self._survey_thread.is_alive()
+
+    def on_unowned_survey(self):
+        self._start_unowned_survey()
+
+    def on_unowned_survey_stop(self):
+        self._survey_stop.set()
+        self._log("统计未拥有：已请求停止(当前这步走完就停)。")
+
+    def _save_survey_report(self, report: str) -> None:
+        try:
+            os.makedirs("logs", exist_ok=True)
+            path = os.path.join("logs", "未拥有统计.txt")
+            with open(path, "w", encoding="utf-8") as fh:
+                fh.write(report)
+            self._log(f"统计报告已保存到 {path}")
+        except Exception as exc:
+            self._log(f"统计报告保存失败:{exc}")
+
+    def _start_unowned_survey(self):
+        if not self.runner_ready or self.runner is None:
+            self._log("识别模型还在加载,请稍候。")
+            return
+        if (self.runner.is_running() or self._sell_busy() or self._snipe_busy()
+                or self._unowned_busy() or self._survey_busy()):
+            return
+        self._survey_stop.clear()
+        self._log("【统计未拥有怎么用】① 进 收集簿→旅行家→车辆收藏,停在车辆网格页(看得到一格格车);② 再点这里。")
+        self._log("　 只读不买:它会逐辆对未拥有的车按『购买』看获得方式,再取消,最后给出统计报告(也存到 logs)。")
+
+        def worker():
+            import time as _t
+            from gamepad import Gamepad
+            from v4.unowned_surveyor import UnownedSurveyIO, UnownedSurveyor, format_report
+
+            pad = None
+            try:
+                try:
+                    focus.activate_window(title_substr=config.GAME_TITLE, on_log=self._log)
+                except Exception:
+                    pass
+                _t.sleep(0.6)
+                pad = Gamepad()
+                _t.sleep(0.6)
+                for _ in range(3):  # dismiss a controller-disconnected modal if present
+                    snap = self.runner.recognizer.capture(full_ocr=True, region_ocr=True)
+                    if getattr(snap.v3, "screen", "") != "controller_disconnected":
+                        break
+                    pad.tap("a", hold=0.12)
+                    _t.sleep(1.0)
+                io = UnownedSurveyIO(self.runner.recognizer, pad, title=config.GAME_TITLE,
+                                     on_log=self._log, stop_event=self._survey_stop)
+                # Guard: only act on the 车辆收藏 grid, so a mis-click can't wander through menus.
+                on_grid = False
+                for _ in range(3):
+                    if io.read().on_grid:
+                        on_grid = True
+                        break
+                if not on_grid:
+                    self._log("当前不在『车辆收藏』网格页。请进 收集簿→旅行家→车辆收藏,停在网格页再点。")
+                    return
+                surveyor = UnownedSurveyor(
+                    io, on_log=self._log, stop_event=self._survey_stop,
+                    auto_focus=self.auto_focus.get(),
+                )
+                result = surveyor.run()
+                report = format_report(surveyor.summary())
+                self._log("==== 未拥有车辆统计报告 ====")
+                for line in report.splitlines():
+                    self._log(line)
+                self._save_survey_report(report)
+                self._log(f"统计未拥有结束：{result}(共 {len(surveyor.results)} 辆未拥有)")
+            except Exception as exc:
+                self._log(f"统计未拥有出错:{exc}")
+            finally:
+                try:
+                    if pad is not None:
+                        pad.neutral()
+                except Exception:
+                    pass
+                self._log("统计未拥有线程结束。")
+
+        self._survey_thread = threading.Thread(target=worker, name="v4-gui-survey", daemon=True)
+        self._survey_thread.start()
+
     def activate_game(self):
         try:
             focus.activate_window(title_substr=config.GAME_TITLE, on_log=self._log)
@@ -701,7 +804,8 @@ class V4App:
         except queue.Empty:
             pass
         running = (bool(self.runner and self.runner.is_running())
-                   or self._sell_busy() or self._snipe_busy() or self._unowned_busy())
+                   or self._sell_busy() or self._snipe_busy() or self._unowned_busy()
+                   or self._survey_busy())
         idle_ready = self.runner_ready and not running
         self.start_btn.config(state="normal" if idle_ready else "disabled")
         self.sell_btn.config(state="normal" if idle_ready else "disabled")
@@ -710,6 +814,8 @@ class V4App:
         self.snipe_stop_btn.config(state="normal" if self._snipe_busy() else "disabled")
         self.unowned_buy_btn.config(state="normal" if idle_ready else "disabled")
         self.unowned_stop_btn.config(state="normal" if self._unowned_busy() else "disabled")
+        self.survey_btn.config(state="normal" if idle_ready else "disabled")
+        self.survey_stop_btn.config(state="normal" if self._survey_busy() else "disabled")
         self.stop_btn.config(state="normal" if running else "disabled")
         if running:
             self.status_var.set("运行中...")
