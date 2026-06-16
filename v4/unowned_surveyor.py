@@ -307,25 +307,31 @@ class UnownedSurveyor:
         self.on_log(f"统计未拥有：{name} ← {how}（已统计 {len(self.results)} 辆未拥有）")
         self.on_progress(res)
 
-    def run(self) -> str:
-        """Survey the whole grid one focused-row at a time, scrolling down. Returns a stop reason.
+    NO_PROGRESS_LIMIT = 14   # consecutive already-seen cells => the whole grid is covered (at bottom)
 
-        Each iteration reads the grid, processes every UN-OWNED card in the CURSOR's row (aligning
-        to each via the IO, pressing 购买, reading + classifying the popup, dismissing with A), then
-        steps down to the next row. Ends when stepping down no longer advances (bottom), or when the
-        row's cars repeat (a safety backstop)."""
+    def run(self) -> str:
+        """Survey the whole grid by walking the cursor cell-by-cell in a SNAKE (boustrophedon):
+        right across a row, down, left across the next, down, ... At every step it classifies the
+        cursor's FOCUSED cell -- the focus ring is ground truth and the focused card is clearest to
+        read -- and processes an un-owned card IN PLACE. Because it visits one concrete cell per step
+        (never a one-shot 5-up read + blind move), it cannot skip a cell. Every visited car is
+        remembered; when it stops finding ANY new car for a while, the grid is covered and it stops."""
         self.on_log("统计未拥有车辆启动：请先停在『车辆收藏』网格页(收集簿→旅行家→车辆收藏)。只读不购买。")
         started = self.clock()
         if not self._ensure_focus():
             return "not_focused"
-        self.io.pin_to_top()                     # scroll to top-left for a clean start
+        self.io.pin_to_top()                     # scroll all the way to the TRUE top first
 
-        prev_sig = None
+        direction = 1                            # +1 = rightward across a row, -1 = leftward
+        last_action = None                       # "H" = last move was horizontal, "D" = down
+        prev_pos = None                          # (row, col) before the last move
+        no_progress = 0
+        stuck_h = 0
         empty = 0
         recover = 0
-        rows = 0
-        while not self._stopped() and rows < self.MAX_STEPS:
-            rows += 1
+        steps = 0
+        while not self._stopped() and steps < self.MAX_STEPS:
+            steps += 1
             if (self.clock() - started) / 60.0 >= self.max_minutes:
                 self.on_log("统计未拥有：到达时间上限,结束。")
                 return "max_minutes"
@@ -351,81 +357,78 @@ class UnownedSurveyor:
                 self.sleeper(0.3)
                 continue
             recover = 0
-            if gv.focused is None:
-                empty += 1
-                if empty >= 8:
-                    return "no_focus"
-                self.sleeper(0.2)
-                continue
             empty = 0
+            if gv.focused is None:
+                self.io.press("dpad_left")       # nudge to re-acquire the focus ring
+                self.sleeper(0.1)
+                continue
 
-            fr = gv.focused[0]
-            cells = [gv.cells.get((fr, c)) for c in range(5)]
-            sig = tuple((c.name if c and c.name else "") for c in cells)
-            if prev_sig is not None and sig == prev_sig:
-                self.on_log(
-                    f"统计未拥有：已扫到底部(共 {len(self.results)} 辆未拥有 / "
-                    f"约 {self.owned_count} 辆已拥有)。"
-                )
-                return "done"
-            prev_sig = sig
+            fr, fc = gv.focused
+            cell = gv.cells.get((fr, fc))
+            name = cell.name if cell else ""
 
-            moved = False        # did we move the cursor off its row-read position this row?
-            for c in range(5):
-                if self._stopped():
-                    break
-                cell = cells[c]
-                if not cell or not cell.name or cell.name in self._seen:
-                    continue
-                # In collect_all mode we open the 购买 popup on EVERY car (owned too) to log its raw
-                # 文案 -- so we can study the full text space + the owned-vs-unowned signal. Normally we
-                # only open it on the un-owned (placeholder) cards.
+            # --- classify the FOCUSED cell (ground truth, clearest to read) ------------------
+            is_new = bool(name) and name not in self._seen
+            if is_new:
                 if cell.placeholder or self.collect_all:
-                    moved = True
-                    if not self.io.move_to_col(fr, c):
-                        self.on_log(f"统计未拥有：无法对齐到第 {c + 1} 列,跳过 {cell.name}。")
-                        self._seen.add(cell.name)
-                        continue
-                    self.io.press("start")               # 购买 (Menu/≡) -> obtain-method popup
-                    text = self.io.popup_text()
-                    if is_popup(text):
-                        self.io.press("a")               # 取消/确定 -> back to grid (never buys)
-                    else:
-                        # No popup detected (e.g. a truly-owned car) -> do NOT press A (would 选择
-                        # into the car). The 购买 press was a no-op; the cursor stays on the grid.
-                        self.on_log(f"统计未拥有：{cell.name} 未弹出购买窗(可能已拥有),跳过。")
-                    if self.collect_all and self.on_corpus:
-                        try:
-                            self.on_corpus(cell.name, cell.placeholder, text)
-                        except Exception:
-                            pass
-                    if cell.placeholder:
-                        kind, methods = classify_obtain(text)
-                        if kind == OBTAIN_UNKNOWN:
-                            # log the raw 文案 so an unrecognized obtain method is diagnosable
-                            self.on_log(f"统计未拥有[未知文案] {cell.name}: {(text or '')[:90]}")
-                        self._record(cell.name, kind, methods)   # _record adds to _seen
-                    else:
-                        self._seen.add(cell.name)
-                        self.owned_count += 1
+                    self._survey_focused_cell(cell)   # presses 购买 + records / counts; adds to _seen
                 else:
-                    self._seen.add(cell.name)
+                    self._seen.add(name)
                     self.owned_count += 1
+                no_progress = 0
+            else:
+                no_progress += 1
+                if no_progress >= self.NO_PROGRESS_LIMIT:
+                    self.on_log(
+                        f"统计未拥有：已扫完(共 {len(self.results)} 辆未拥有 / "
+                        f"约 {self.owned_count} 辆已拥有)。"
+                    )
+                    return "done"
 
-            # When the cursor never left its row-read position (no placeholder this row), we still
-            # know the focused car name -> let next_row skip its 'before' capture.
-            focused_cell = gv.cells.get(gv.focused)
-            before_name = None if moved else (focused_cell.name if focused_cell else "")
-            if not self.io.next_row(before_name=before_name):
-                self.on_log(
-                    f"统计未拥有：已扫到底部(共 {len(self.results)} 辆未拥有 / "
-                    f"约 {self.owned_count} 辆已拥有)。"
-                )
-                return "done"
-            self.sleeper(0.05)
+            # --- detect a horizontal press that didn't move (a partial row's edge) -----------
+            if last_action == "H" and prev_pos == (fr, fc):
+                stuck_h += 1
+            else:
+                stuck_h = 0
+            prev_pos = (fr, fc)
+
+            # --- advance ONE cell in snake order --------------------------------------------
+            nxt = fc + direction
+            if 0 <= nxt <= 4 and stuck_h < 2:
+                self.io.press("dpad_right" if direction > 0 else "dpad_left")
+                last_action = "H"
+            else:                                # row edge (or stuck) -> drop a row, reverse
+                self.io.press("dpad_down")
+                direction = -direction
+                last_action = "D"
+                stuck_h = 0
         if self._stopped():
             return "stopped"
-        return "max_rows"
+        return "max_steps"
+
+    def _survey_focused_cell(self, cell: Cell) -> None:
+        """The cursor is already ON this cell. Press 购买, read + classify the popup, dismiss (A).
+        Never buys. Adds the name to _seen (via _record for un-owned, or directly for owned)."""
+        self.io.press("start")                   # 购买 (Menu/≡) -> obtain-method popup
+        text = self.io.popup_text()
+        if is_popup(text):
+            self.io.press("a")                   # 取消/确定 -> back to grid (never buys)
+        else:
+            # No popup (a truly-owned, non-buyable car) -> do NOT press A (it would 选择 into it).
+            self.on_log(f"统计未拥有：{cell.name} 未弹出购买窗(可能已拥有),跳过。")
+        if self.collect_all and self.on_corpus:
+            try:
+                self.on_corpus(cell.name, cell.placeholder, text)
+            except Exception:
+                pass
+        if cell.placeholder:
+            kind, methods = classify_obtain(text)
+            if kind == OBTAIN_UNKNOWN:
+                self.on_log(f"统计未拥有[未知文案] {cell.name}: {(text or '')[:90]}")
+            self._record(cell.name, kind, methods)    # appends result + adds to _seen
+        else:
+            self._seen.add(cell.name)
+            self.owned_count += 1
 
     def summary(self) -> dict:
         """Aggregate the results into report buckets keyed by obtain method."""
@@ -566,11 +569,39 @@ class UnownedSurveyIO:
         return GridView(on_grid=on_grid, focused=focus, cells=cells, text=text)
 
     def pin_to_top(self) -> None:
-        for _ in range(7):
+        """Scroll all the way to the TRUE top, then go to the leftmost column. Detects the top by the
+        VISIBLE PLACEHOLDER PATTERN going stable (the grid can't scroll up) -- the gray-placeholder
+        mask is deterministic, unlike the OCR names which jitter and would never settle. Up-presses
+        are fast taps (no per-step settle); if some are dropped the pattern just keeps changing, so it
+        self-corrects. A fixed count is NOT enough for a tall collection -- under-scrolling silently
+        skips the top rows (the bug that made the survey miss cars)."""
+        from gamepad import BUTTON_NAMES
+
+        last_pat = None
+        same = 0
+        for _ in range(45):                      # cap (~360 up-presses of headroom)
             if self._stopped():
-                return
-            self.press("dpad_up")
-        for _ in range(5):
+                break
+            for _ in range(8):                   # fast bulk up-taps (no per-press recognition)
+                if "dpad_up" in BUTTON_NAMES:
+                    self.pad.tap("dpad_up", hold=self.tap_hold)
+                self._sleep(0.1)
+            self._sleep(0.3)                     # let the scroll settle, then read once
+            gv = self.read()
+            if not gv.on_grid:
+                continue
+            pat = tuple(
+                bool(gv.cells.get((r, c)) and gv.cells[(r, c)].placeholder)
+                for r in range(3) for c in range(5)
+            )
+            if pat == last_pat:
+                same += 1
+                if same >= 1:                    # stable across two reads -> at the top
+                    break
+            else:
+                same = 0
+                last_pat = pat
+        for _ in range(6):
             if self._stopped():
                 return
             self.press("dpad_left")

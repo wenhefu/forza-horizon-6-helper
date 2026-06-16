@@ -157,8 +157,10 @@ def test_read_cell_name_skips_placeholder_text():
 
 # ----------------------------------------------------------------------------- traversal (FakeIO)
 class FakeGridIO:
-    """Models a scrolling 5-column collection grid. Each row is a list of cell dicts
-    {name, placeholder, popup}. The cursor walks; the grid scrolls to keep it within 3 visible rows."""
+    """A press-driven 5-column collection-grid simulator. Each row is a list of cell dicts
+    {name, placeholder, popup} (rows may be partial). dpad presses move the cursor (clamped at the
+    real car edges) and scroll the grid to keep the cursor within the 3 visible rows -- exactly what
+    the snake walk drives against."""
 
     def __init__(self, rows):
         self.rows = rows
@@ -175,6 +177,9 @@ class FakeGridIO:
     def activate(self):
         pass
 
+    def _rowlen(self, r):
+        return len(self.rows[r]) if 0 <= r < len(self.rows) else 0
+
     def pin_to_top(self):
         self.top = self.cur_row = self.cur_col = 0
 
@@ -183,7 +188,7 @@ class FakeGridIO:
         for vr in range(3):
             ar = self.top + vr
             for c in range(5):
-                if ar < len(self.rows) and c < len(self.rows[ar]):
+                if 0 <= ar < len(self.rows) and c < len(self.rows[ar]):
                     cd = self.rows[ar][c]
                     cells[(vr, c)] = Cell(cd["name"], cd["placeholder"])
                 else:
@@ -192,27 +197,34 @@ class FakeGridIO:
         focus = (vr, self.cur_col) if 0 <= vr < 3 else None
         return GridView(on_grid=True, focused=focus, cells=cells)
 
-    def move_to_col(self, row, col):
-        self.cur_col = col
-        return True
-
     def press(self, btn):
         self.presses.append(btn)
         if btn == "start":
-            self.starts.append(self.rows[self.cur_row][self.cur_col]["name"])
+            row = self.rows[self.cur_row]
+            if self.cur_col < len(row):
+                self.starts.append(row[self.cur_col]["name"])
         elif btn == "a":
             self.dismissed += 1
+        elif btn == "dpad_right":
+            self.cur_col = min(self.cur_col + 1, max(0, self._rowlen(self.cur_row) - 1), 4)
+        elif btn == "dpad_left":
+            self.cur_col = max(self.cur_col - 1, 0)
+        elif btn == "dpad_up":
+            if self.cur_row > 0:
+                self.cur_row -= 1
+                if self.cur_row < self.top:
+                    self.top = self.cur_row
+                self.cur_col = min(self.cur_col, max(0, self._rowlen(self.cur_row) - 1))
+        elif btn == "dpad_down":
+            if self.cur_row < len(self.rows) - 1:
+                self.cur_row += 1
+                if self.cur_row - self.top > 2:
+                    self.top = self.cur_row - 2
+                self.cur_col = min(self.cur_col, max(0, self._rowlen(self.cur_row) - 1))
 
     def popup_text(self):
-        return self.rows[self.cur_row][self.cur_col].get("popup", "")
-
-    def next_row(self, before_name=None):
-        if self.cur_row + 1 >= len(self.rows):
-            return False
-        self.cur_row += 1
-        if self.cur_row - self.top > 2:
-            self.top = self.cur_row - 2
-        return True
+        row = self.rows[self.cur_row]
+        return row[self.cur_col].get("popup", "") if self.cur_col < len(row) else ""
 
 
 def _cell(name, placeholder, popup=""):
@@ -331,9 +343,6 @@ def test_survey_recovers_from_stray_modal():
                 return gv
             return base.read()
 
-        def move_to_col(self, r, c):
-            return base.move_to_col(r, c)
-
         def press(self, b):
             presses.append(b)
             base.press(b)
@@ -341,13 +350,38 @@ def test_survey_recovers_from_stray_modal():
         def popup_text(self):
             return base.popup_text()
 
-        def next_row(self, before_name=None):
-            return base.next_row(before_name)
-
     s = UnownedSurveyor(WrapIO(), sleeper=lambda *_: None)
     assert s.run() == "done"
     assert presses.count("a") >= 2          # dismissed the disconnect modal + the stray popup
     assert [r.name for r in s.results] == ["A"]
+
+
+def test_snake_catches_every_placeholder_in_a_row():
+    """Regression for the row-batch bug that skipped MIDDLE placeholders: a row of all-placeholders
+    + multi-placeholder rows must be caught completely (the cursor visits each cell)."""
+    grid = [
+        [_cell("P1", True, BUY), _cell("P2", True, REWARD), _cell("P3", True, LOTTERY),
+         _cell("P4", True, BUY), _cell("P5", True, REWARD)],                          # ALL placeholders
+        [_cell("o1", False), _cell("M1", True, BUY), _cell("o2", False),
+         _cell("M2", True, BUY), _cell("o3", False)],                                 # placeholders at 1,3
+        [_cell("o4", False), _cell("o5", False), _cell("P6", True, REWARD),
+         _cell("o6", False), _cell("o7", False)],                                     # placeholder in the middle
+    ]
+    io = FakeGridIO(grid)
+    s = UnownedSurveyor(io, sleeper=lambda *_: None)
+    assert s.run() == "done"
+    assert {r.name for r in s.results} == {"P1", "P2", "P3", "P4", "P5", "M1", "M2", "P6"}
+
+
+def test_snake_handles_partial_last_row():
+    grid = [
+        [_cell("A", True, BUY), _cell("B", False), _cell("C", True, REWARD), _cell("D", False), _cell("E", False)],
+        [_cell("F", True, BUY), _cell("G", False)],          # partial last row (2 cars)
+    ]
+    io = FakeGridIO(grid)
+    s = UnownedSurveyor(io, sleeper=lambda *_: None)
+    assert s.run() == "done"
+    assert {r.name for r in s.results} == {"A", "C", "F"}
 
 
 def test_survey_leaves_grid_reports_left():
